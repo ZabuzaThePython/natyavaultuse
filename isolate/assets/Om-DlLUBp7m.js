@@ -1,0 +1,1 @@
+import{j as e}from"./framer-motion-BcyYh5-L.js";import{l as r}from"./index-CRln57nC.js";function s({className:n}){return e.jsx("span",{"aria-hidden":"true",className:r("inline-block leading-none select-none",n),children:"ॐ"})}export{s as O};
