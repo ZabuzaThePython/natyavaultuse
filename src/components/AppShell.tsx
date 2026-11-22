@@ -665,6 +665,26 @@ export default function AppShell() {
         <SidebarSeparator />
 
         <SidebarFooter className="gap-3 p-3">
+          {/* Who built it and where to get help. Kept small and low-contrast so
+              the account row below stays the loudest thing down here. */}
+          <div className="rounded-lg border border-sidebar-border/60 bg-sidebar-accent/25 px-2.5 py-2">
+            <p className="text-[9px] font-medium tracking-[0.14em] text-sidebar-foreground/40 uppercase">
+              Developed by
+            </p>
+            <p className="truncate text-[11px] leading-snug text-sidebar-foreground/70">
+              Benish Agasthya Mutha
+            </p>
+            <p className="mt-1.5 text-[9px] font-medium tracking-[0.14em] text-sidebar-foreground/40 uppercase">
+              Support
+            </p>
+            <a
+              href="mailto:muthabenish@gmail.com"
+              title="Email support"
+              className="block truncate text-[11px] leading-snug text-sidebar-foreground/70 underline-offset-2 transition-colors hover:text-sidebar-foreground hover:underline"
+            >
+              muthabenish@gmail.com
+            </a>
+          </div>
           <div className="flex items-center gap-2.5">
             <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-gold/20 text-xs font-semibold text-gold ring-1 ring-white/10">
               {initials}
