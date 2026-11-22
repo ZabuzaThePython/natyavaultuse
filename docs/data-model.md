@@ -14,20 +14,20 @@ devices and admin grant.
 
 ```mermaid
 erDiagram
-  ACCOUNT ||--o{ CLASS : "owns"
+  ACCOUNT ||--o{ DANCE_CLASS : "owns"
   ACCOUNT ||--o{ ENROLMENT : "joins"
-  CLASS ||--o{ ENROLMENT : "has"
+  DANCE_CLASS ||--o{ ENROLMENT : "has"
   ACCOUNT ||--o{ PRACTICE_SESSION : "logs"
-  CLASS ||--o{ PRACTICE_SESSION : "collects"
-  CLASS ||--o{ ATTENDANCE_MARK : "records"
-  CLASS ||--o{ MEDIA_ITEM : "archives"
+  DANCE_CLASS ||--o{ PRACTICE_SESSION : "collects"
+  DANCE_CLASS ||--o{ ATTENDANCE_MARK : "records"
+  DANCE_CLASS ||--o{ MEDIA_ITEM : "archives"
   ACCOUNT ||--o{ MEDIA_ITEM : "uploads"
-  CLASS ||--o| CHAT : "one room"
+  DANCE_CLASS ||--o| CHAT : "one room"
   CHAT ||--o{ CHAT_MEMBER : "seats"
   ACCOUNT ||--o{ CHAT_MEMBER : "sits in"
   CHAT ||--o{ MESSAGE : "holds"
   ACCOUNT ||--o{ MESSAGE : "sends"
-  CLASS ||--o{ EXTRA_NAME : "roster entry"
+  DANCE_CLASS ||--o{ EXTRA_NAME : "roster entry"
   ACCOUNT ||--o| DRIVE_CONNECTION : "connects"
   ACCOUNT ||--o{ PUSH_DEVICE : "registers"
   ACCOUNT ||--o| ADMIN_GRANT : "may hold"
@@ -36,7 +36,7 @@ erDiagram
 | Entity | What it stands for |
 | --- | --- |
 | `ACCOUNT` | One person who signs in: a student, a teacher, or the admin. |
-| `CLASS` | A class with a six-character code students type at sign-up. |
+| `DANCE_CLASS` | A class with a six-character code students type at sign-up. |
 | `ENROLMENT` | The link between an account and the one class it belongs to. |
 | `ATTENDANCE_MARK` | One person's status on one class day: present, late, absent or away. |
 | `PRACTICE_SESSION` | Minutes practised on a date, with what was practised. |

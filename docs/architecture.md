@@ -49,6 +49,13 @@ flowchart LR
   class client,fns,http,db,files,actions app
   class auth auth
   class drive,livekit,push ext
+
+  %% Border only, no fills: Mermaid's default subgraph fills clash with the
+  %% meaning above, and fixed fills break on a dark theme.
+  style hosting fill:transparent,stroke:#8a8a8a
+  style browser fill:transparent,stroke:#8a8a8a
+  style deploy fill:transparent,stroke:#4a72c4
+  style external fill:transparent,stroke:#c9a227
 ```
 
 Solid arrows are steady traffic; the dashed arrow is the sign-in and token

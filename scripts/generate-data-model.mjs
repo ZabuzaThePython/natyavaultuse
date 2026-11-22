@@ -23,6 +23,7 @@ const CACHE_DIR = join(ROOT, ".cache");
 const SCHEMA_ENTRY = join(ROOT, "src/convex/schema.ts");
 const DATA_MODEL_DOC = join(ROOT, "docs/data-model.md");
 const ARCHITECTURE_DOC = join(ROOT, "docs/architecture.md");
+const DIAGRAMS_HTML = join(ROOT, "docs/diagrams.html");
 
 const DATA_BEGIN = "<!-- BEGIN GENERATED DATA MODEL -->";
 const DATA_END = "<!-- END GENERATED DATA MODEL -->";
@@ -30,6 +31,119 @@ const COUNTS_BEGIN = "<!-- BEGIN GENERATED COUNTS -->";
 const COUNTS_END = "<!-- END GENERATED COUNTS -->";
 
 const checkOnly = process.argv.includes("--check");
+
+/** Every ```mermaid block in a Markdown document, in order. */
+function mermaidBlocks(markdown) {
+  const blocks = [];
+  const pattern = /```mermaid\n([\s\S]*?)```/g;
+  let match = pattern.exec(markdown);
+  while (match !== null) {
+    blocks.push(match[1].trimEnd());
+    match = pattern.exec(markdown);
+  }
+  return blocks;
+}
+
+function escapeHtml(text) {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+/**
+ * A browser page holding the same diagrams as the Markdown, so they can be
+ * read (and saved) without a Markdown viewer that draws Mermaid. Generated
+ * from the two docs, so it never says anything they don't.
+ */
+function renderDiagramsHtml(architectureDoc, dataModelDoc) {
+  const architecture = mermaidBlocks(architectureDoc);
+  const model = mermaidBlocks(dataModelDoc);
+  const sections = [
+    {
+      title: "Architecture",
+      caption:
+        "Hosting, the browser, the Convex deployment and the external services it talks to. Dashed: sign-in and token refresh.",
+      blocks: architecture.slice(0, 1),
+    },
+    {
+      title: "Conceptual data model",
+      caption: "The things the school works with, and how they relate.",
+      blocks: model.slice(0, 1),
+    },
+    {
+      title: "Physical data model",
+      caption:
+        "Every table, its fields, keys and references — generated from src/convex/schema.ts.",
+      blocks: model.slice(1, 2),
+    },
+  ].filter((section) => section.blocks.length > 0);
+
+  const body = sections
+    .map(
+      (section) => `  <section>
+    <h2>${escapeHtml(section.title)}</h2>
+    <p class="caption">${escapeHtml(section.caption)}</p>
+${section.blocks
+  .map((block) => `    <pre class="mermaid">${escapeHtml(block)}</pre>`)
+  .join("\n")}
+  </section>`,
+    )
+    .join("\n\n");
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>NatyaVault diagrams</title>
+<style>
+  :root { color-scheme: light dark; --ink: #1f2328; --muted: #59636e; --card: #ffffff; --page: #f6f8fa; --line: #d1d9e0; }
+  @media (prefers-color-scheme: dark) {
+    :root { --ink: #e6edf3; --muted: #9198a1; --card: #0d1117; --page: #010409; --line: #30363d; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 40px 24px 64px; background: var(--page); color: var(--ink);
+    font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
+  header, main { max-width: 1400px; margin: 0 auto; }
+  h1 { margin: 0 0 8px; font-size: 30px; letter-spacing: -0.01em; }
+  .blurb { margin: 0 0 32px; color: var(--muted); max-width: 70ch; }
+  h2 { margin: 0 0 4px; font-size: 20px; }
+  .caption { margin: 0 0 16px; color: var(--muted); font-size: 14px; }
+  section { margin: 0 0 40px; padding: 24px; background: var(--card);
+    border: 1px solid var(--line); border-radius: 12px; overflow-x: auto; }
+  pre.mermaid { margin: 0; text-align: center; }
+  p.warning { margin: 32px 0 0; color: var(--muted); font-size: 13px; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.9em; }
+</style>
+</head>
+<body>
+<header>
+  <h1>NatyaVault diagrams</h1>
+  <p class="blurb">Generated from <code>docs/architecture.md</code> and <code>docs/data-model.md</code>.
+  Change the schema or the docs, run <code>npm run docs:data-model</code>, and this page follows.</p>
+</header>
+<main>
+${body}
+  <p class="warning">Diagrams draw with Mermaid from the jsDelivr CDN, so this page needs an internet connection to render.</p>
+</main>
+<script type="module">
+  import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+  mermaid.initialize({
+    startOnLoad: true,
+    maxTextSize: 400000,
+    maxEdges: 2000,
+    theme: window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "default",
+    // Draw at natural size and let the card scroll: the ER diagram is far too
+    // wide to squeeze into a column without becoming unreadable.
+    flowchart: { useMaxWidth: false },
+    er: { useMaxWidth: false },
+  });
+</script>
+</body>
+</html>
+`;
+}
 
 /** Text that is safe inside a Mermaid quoted comment. */
 function quote(text) {
@@ -169,6 +283,20 @@ async function writeSection(path, begin, end, body) {
   return { path, changed: true, stale: false };
 }
 
+/** Write a wholly generated file (no markers), same update/check contract. */
+async function writeGenerated(path, content) {
+  let current = null;
+  try {
+    current = await readFile(path, "utf8");
+  } catch {
+    current = null;
+  }
+  if (current === content) return { path, changed: false, stale: false };
+  if (checkOnly) return { path, changed: false, stale: true };
+  await writeFile(path, content, "utf8");
+  return { path, changed: true, stale: false };
+}
+
 await mkdir(CACHE_DIR, { recursive: true });
 const bundled = join(CACHE_DIR, "schema.mjs");
 await build({
@@ -190,6 +318,13 @@ if (Object.keys(tables).length === 0) {
 const results = [
   await writeSection(DATA_MODEL_DOC, DATA_BEGIN, DATA_END, renderDataModel(tables)),
   await writeSection(ARCHITECTURE_DOC, COUNTS_BEGIN, COUNTS_END, renderCounts(tables)),
+  await writeGenerated(
+    DIAGRAMS_HTML,
+    renderDiagramsHtml(
+      await readFile(ARCHITECTURE_DOC, "utf8"),
+      await readFile(DATA_MODEL_DOC, "utf8"),
+    ),
+  ),
 ];
 
 const { total } = countTables(tables);

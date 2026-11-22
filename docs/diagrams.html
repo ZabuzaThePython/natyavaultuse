@@ -1,0 +1,423 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>NatyaVault diagrams</title>
+<style>
+  :root { color-scheme: light dark; --ink: #1f2328; --muted: #59636e; --card: #ffffff; --page: #f6f8fa; --line: #d1d9e0; }
+  @media (prefers-color-scheme: dark) {
+    :root { --ink: #e6edf3; --muted: #9198a1; --card: #0d1117; --page: #010409; --line: #30363d; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 40px 24px 64px; background: var(--page); color: var(--ink);
+    font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
+  header, main { max-width: 1400px; margin: 0 auto; }
+  h1 { margin: 0 0 8px; font-size: 30px; letter-spacing: -0.01em; }
+  .blurb { margin: 0 0 32px; color: var(--muted); max-width: 70ch; }
+  h2 { margin: 0 0 4px; font-size: 20px; }
+  .caption { margin: 0 0 16px; color: var(--muted); font-size: 14px; }
+  section { margin: 0 0 40px; padding: 24px; background: var(--card);
+    border: 1px solid var(--line); border-radius: 12px; overflow-x: auto; }
+  pre.mermaid { margin: 0; text-align: center; }
+  p.warning { margin: 32px 0 0; color: var(--muted); font-size: 13px; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.9em; }
+</style>
+</head>
+<body>
+<header>
+  <h1>NatyaVault diagrams</h1>
+  <p class="blurb">Generated from <code>docs/architecture.md</code> and <code>docs/data-model.md</code>.
+  Change the schema or the docs, run <code>npm run docs:data-model</code>, and this page follows.</p>
+</header>
+<main>
+  <section>
+    <h2>Architecture</h2>
+    <p class="caption">Hosting, the browser, the Convex deployment and the external services it talks to. Dashed: sign-in and token refresh.</p>
+    <pre class="mermaid">flowchart LR
+  classDef app stroke:#4a72c4,stroke-width:2px
+  classDef auth stroke:#8b5cf6,stroke-width:2px
+  classDef ext stroke:#c9a227,stroke-width:2px
+  classDef neutral stroke:#8a8a8a,stroke-width:1px
+
+  subgraph hosting["Hosting / Freebuff Sites"]
+    sites["Cloudflare Worker&lt;br/&gt;static SPA build"]
+  end
+
+  subgraph browser["Browser / PWA"]
+    client["React 19 SPA&lt;br/&gt;Convex React client"]
+    sw["Service worker&lt;br/&gt;web push"]
+    store["localStorage&lt;br/&gt;JWT / role cache"]
+  end
+
+  subgraph deploy["Convex deployment / prod"]
+    fns["Queries and mutations&lt;br/&gt;classes, chats, vault"]
+    http["HTTP routes&lt;br/&gt;/drive/callback and proxies"]
+    db[("Convex DB")]
+    files[("File storage&lt;br/&gt;chat attachments")]
+    auth["Convex Auth&lt;br/&gt;password, JWT, JWKS"]
+    actions["Actions&lt;br/&gt;Drive, LiveKit, Giphy, push"]
+  end
+
+  subgraph external["External services"]
+    drive["Google Drive&lt;br/&gt;personal and class archive"]
+    livekit["LiveKit Cloud&lt;br/&gt;call audio / video"]
+    push["Web Push / VAPID&lt;br/&gt;service worker receives"]
+  end
+
+  sites --&gt;|serves the build| client
+  client --&gt;|WS / JWT| fns
+  client -.-&gt;|sign in / refresh| auth
+  fns --&gt;|reads / writes| db
+  http --&gt;|attachments| files
+  http --&gt;|OAuth, upload, stream| drive
+  actions --&gt;|room token| livekit
+  actions --&gt;|notify| push
+
+  class sites,sw,store neutral
+  class client,fns,http,db,files,actions app
+  class auth auth
+  class drive,livekit,push ext
+
+  %% Border only, no fills: Mermaid's default subgraph fills clash with the
+  %% meaning above, and fixed fills break on a dark theme.
+  style hosting fill:transparent,stroke:#8a8a8a
+  style browser fill:transparent,stroke:#8a8a8a
+  style deploy fill:transparent,stroke:#4a72c4
+  style external fill:transparent,stroke:#c9a227</pre>
+  </section>
+
+  <section>
+    <h2>Conceptual data model</h2>
+    <p class="caption">The things the school works with, and how they relate.</p>
+    <pre class="mermaid">erDiagram
+  ACCOUNT ||--o{ DANCE_CLASS : "owns"
+  ACCOUNT ||--o{ ENROLMENT : "joins"
+  DANCE_CLASS ||--o{ ENROLMENT : "has"
+  ACCOUNT ||--o{ PRACTICE_SESSION : "logs"
+  DANCE_CLASS ||--o{ PRACTICE_SESSION : "collects"
+  DANCE_CLASS ||--o{ ATTENDANCE_MARK : "records"
+  DANCE_CLASS ||--o{ MEDIA_ITEM : "archives"
+  ACCOUNT ||--o{ MEDIA_ITEM : "uploads"
+  DANCE_CLASS ||--o| CHAT : "one room"
+  CHAT ||--o{ CHAT_MEMBER : "seats"
+  ACCOUNT ||--o{ CHAT_MEMBER : "sits in"
+  CHAT ||--o{ MESSAGE : "holds"
+  ACCOUNT ||--o{ MESSAGE : "sends"
+  DANCE_CLASS ||--o{ EXTRA_NAME : "roster entry"
+  ACCOUNT ||--o| DRIVE_CONNECTION : "connects"
+  ACCOUNT ||--o{ PUSH_DEVICE : "registers"
+  ACCOUNT ||--o| ADMIN_GRANT : "may hold"</pre>
+  </section>
+
+  <section>
+    <h2>Physical data model</h2>
+    <p class="caption">Every table, its fields, keys and references — generated from src/convex/schema.ts.</p>
+    <pre class="mermaid">erDiagram
+  users {
+    id _id PK
+    number _creationTime
+    string name "optional"
+    string image "optional"
+    string email "optional"
+    number emailVerificationTime "optional"
+    bool isAnonymous "optional"
+    enum role "admin, user, member; optional"
+    enum classRole "teacher, student; optional"
+    bool fullNameSet "optional"
+    bool tourPending "optional"
+  }
+  authSessions {
+    id _id PK
+    number _creationTime
+    id userId FK "-&gt; users"
+    number expirationTime
+  }
+  authAccounts {
+    id _id PK
+    number _creationTime
+    id userId FK "-&gt; users"
+    string provider
+    string providerAccountId
+    string secret "optional"
+    string emailVerified "optional"
+    string phoneVerified "optional"
+  }
+  authRefreshTokens {
+    id _id PK
+    number _creationTime
+    id sessionId FK "-&gt; authSessions"
+    number expirationTime
+    number firstUsedTime "optional"
+    id parentRefreshTokenId FK "-&gt; authRefreshTokens; optional"
+  }
+  authVerificationCodes {
+    id _id PK
+    number _creationTime
+    id accountId FK "-&gt; authAccounts"
+    string provider
+    string code
+    number expirationTime
+    string verifier "optional"
+    string emailVerified "optional"
+    string phoneVerified "optional"
+  }
+  authVerifiers {
+    id _id PK
+    number _creationTime
+    id sessionId FK "-&gt; authSessions; optional"
+    string signature "optional"
+  }
+  authRateLimits {
+    id _id PK
+    number _creationTime
+    string identifier
+    number lastAttemptTime
+    number attemptsLeft
+  }
+  savedPasswords {
+    id _id PK
+    number _creationTime
+    string username
+    string password
+    number updatedAt
+  }
+  driveTokens {
+    id _id PK
+    number _creationTime
+    id userId FK "-&gt; users"
+    string accessToken
+    string refreshToken
+    number expiresAt
+    string scope
+    string email "optional"
+    number updatedAt
+  }
+  vaultDriveTokens {
+    id _id PK
+    number _creationTime
+    string key
+    string accessToken
+    string refreshToken
+    number expiresAt
+    string scope
+    string email "optional"
+    id connectedBy FK "-&gt; users; optional"
+    number updatedAt
+  }
+  adminUnlocks {
+    id _id PK
+    number _creationTime
+    id userId FK "-&gt; users"
+    number grantedAt
+    number expiresAt
+  }
+  mediaGrants {
+    id _id PK
+    number _creationTime
+    string token
+    string fileId
+    id ownerUserId FK "-&gt; users; optional"
+    number expiresAt
+    number createdAt
+  }
+  driveStates {
+    id _id PK
+    number _creationTime
+    string nonce
+    id userId FK "-&gt; users"
+    string returnTo
+    string origin "optional"
+    string mode "optional"
+    number createdAt
+  }
+  driveFiles {
+    id _id PK
+    number _creationTime
+    id userId FK "-&gt; users"
+    string fileId
+    string name
+    string mimeType
+    number size "optional"
+    number createdAt
+  }
+  classes {
+    id _id PK
+    number _creationTime
+    string code
+    string name
+    id ownerId FK "-&gt; users"
+    string ownerName
+    number createdAt
+  }
+  attendanceMarks {
+    id _id PK
+    number _creationTime
+    string code
+    string date
+    string name
+    enum status "present, late, absent, away"
+    string markedBy
+    number updatedAt
+  }
+  practiceEntries {
+    id _id PK
+    number _creationTime
+    string code
+    id authorId FK "-&gt; users"
+    string authorName
+    string date
+    number minutes
+    string item
+    number createdAt
+    string clientId "optional"
+  }
+  vaultMedia {
+    id _id PK
+    number _creationTime
+    string code
+    enum kind "audio, video"
+    string title
+    string mimeType
+    string driveFileId
+    enum owner "vault, uploader; optional"
+    id uploaderId FK "-&gt; users"
+    string uploaderName
+    string date
+    number createdAt
+  }
+  classStudents {
+    id _id PK
+    number _creationTime
+    string code
+    string name
+    string addedBy
+    number addedAt
+  }
+  classMembers {
+    id _id PK
+    number _creationTime
+    id userId FK "-&gt; users"
+    string code
+    string className
+    number joinedAt
+  }
+  chats {
+    id _id PK
+    number _creationTime
+    enum kind "group, solo"
+    string title
+    string classCode "optional"
+    id createdBy FK "-&gt; users"
+    string createdByName
+    number createdAt
+    number lastMessageAt
+    string lastMessageText
+    string lastMessageAuthor
+    string soloKey "optional"
+  }
+  chatMembers {
+    id _id PK
+    number _creationTime
+    id chatId FK "-&gt; chats"
+    id userId FK "-&gt; users"
+    string name
+    number joinedAt
+    number leftAt "optional"
+    number hiddenAt "optional"
+    number removedAt "optional"
+  }
+  chatMessages {
+    id _id PK
+    number _creationTime
+    id chatId FK "-&gt; chats"
+    id authorId FK "-&gt; users"
+    string authorName
+    bool authorIsStaff
+    string text
+    number createdAt
+    bool pinned
+    object attachment "storageId, name, mimeType, size; optional"
+    object gif "url, previewUrl, width, height, alt; optional"
+    enum deletedBy "author, staff; optional"
+    string deletedByName "optional"
+  }
+  chatReads {
+    id _id PK
+    number _creationTime
+    id chatId FK "-&gt; chats"
+    id userId FK "-&gt; users"
+    number lastReadAt
+  }
+  calls {
+    id _id PK
+    number _creationTime
+    id chatId FK "-&gt; chats"
+    string roomName
+    id startedBy FK "-&gt; users"
+    string startedByName
+    number startedAt
+    number heartbeatAt
+    number endedAt "optional"
+  }
+  pushSubscriptions {
+    id _id PK
+    number _creationTime
+    id userId FK "-&gt; users"
+    string endpoint
+    string p256dh
+    string auth
+    string userAgent "optional"
+    number createdAt
+  }
+  settings {
+    id _id PK
+    number _creationTime
+    string key
+    bool enabled
+    number updatedAt
+  }
+  users ||--o{ authSessions : "userId"
+  users ||--o{ authAccounts : "userId"
+  authSessions ||--o{ authRefreshTokens : "sessionId"
+  authRefreshTokens ||--o{ authRefreshTokens : "parentRefreshTokenId"
+  authAccounts ||--o{ authVerificationCodes : "accountId"
+  authSessions ||--o{ authVerifiers : "sessionId"
+  users ||--o{ driveTokens : "userId"
+  users ||--o{ vaultDriveTokens : "connectedBy"
+  users ||--o{ adminUnlocks : "userId"
+  users ||--o{ mediaGrants : "ownerUserId"
+  users ||--o{ driveStates : "userId"
+  users ||--o{ driveFiles : "userId"
+  users ||--o{ classes : "ownerId"
+  users ||--o{ practiceEntries : "authorId"
+  users ||--o{ vaultMedia : "uploaderId"
+  users ||--o{ classMembers : "userId"
+  users ||--o{ chats : "createdBy"
+  chats ||--o{ chatMembers : "chatId"
+  users ||--o{ chatMembers : "userId"
+  chats ||--o{ chatMessages : "chatId"
+  users ||--o{ chatMessages : "authorId"
+  chats ||--o{ chatReads : "chatId"
+  users ||--o{ chatReads : "userId"
+  chats ||--o{ calls : "chatId"
+  users ||--o{ calls : "startedBy"
+  users ||--o{ pushSubscriptions : "userId"</pre>
+  </section>
+  <p class="warning">Diagrams draw with Mermaid from the jsDelivr CDN, so this page needs an internet connection to render.</p>
+</main>
+<script type="module">
+  import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+  mermaid.initialize({
+    startOnLoad: true,
+    maxTextSize: 400000,
+    maxEdges: 2000,
+    theme: window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "default",
+    // Draw at natural size and let the card scroll: the ER diagram is far too
+    // wide to squeeze into a column without becoming unreadable.
+    flowchart: { useMaxWidth: false },
+    er: { useMaxWidth: false },
+  });
+</script>
+</body>
+</html>
