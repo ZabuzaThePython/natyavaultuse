@@ -45,7 +45,7 @@ export function StudioPrompt({
     if (saving) return;
     const clean = name.trim();
     if (clean.length < 2) {
-      setError("Give your school a name.");
+      setError("Give your studio a name.");
       return;
     }
     setSaving(true);
@@ -89,8 +89,8 @@ export function StudioPrompt({
             Name your studio
           </DialogTitle>
           <DialogDescription>
-            Your classes and students belong to a studio — your school. Name it
-            once; the classes you already run move into it with their students.
+            Your classes and students belong to a studio. Name it once; the classes
+            you already run move into it with their students.
           </DialogDescription>
         </DialogHeader>
 
@@ -101,7 +101,7 @@ export function StudioPrompt({
               id="studio-name"
               value={name}
               onChange={(event) => setName(event.target.value)}
-              placeholder="Shubha School of Arts"
+              placeholder="Shubha Studio of Arts"
               autoComplete="organization"
               disabled={saving}
             />

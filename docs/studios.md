@@ -1,24 +1,26 @@
-# Studios: several schools on one deployment
+# Studios: one deployment, several studios
 
-Today the deployment **is** the school. One `classes` table, one teacher role that
+Today the deployment **is** one studio. One `classes` table, one teacher role that
 sees every class, one class-archive Drive. This document designs the layer above
-it — a **studio** — so several schools can share the deployment and see nothing
+it — a **studio** — so several studios can share the deployment and see nothing
 of each other.
 
-Status: **phases 1 and 2 are built**, and so is the per-studio folder in the
-archive Drive (the storage half of phase 4). The studio management page (3), the
-platform studio list (5) and the `mediaStore`/R2 seam are designed, not built.
+Status: **phases 1, 2, 3 and 5 are built**, and so is the per-studio folder in
+the archive Drive (the storage half of phase 4). Left: the `mediaStore`/R2 seam,
+so the archive stops being one Drive account shared by every studio.
 
-To turn it on for an existing deployment: deploy the code, sign in as the admin,
-and press **Set up studios** where the school picker will be (bottom of the
-sidebar's Studio group). Everything lands in one studio that adopts the
-`NatyaVault` folder already in the archive Drive.
+To turn it on for an existing deployment: deploy the code and sign in as the
+admin. Existing teachers are asked to name their studio on their next visit, and
+their classes and students come with it. Alternatively the admin can press
+**Group into one studio** in the sidebar's Studio group, which puts everything
+into a single studio that adopts the `NatyaVault` folder already in the archive
+Drive — use that only to keep the old single-studio setup.
 
 ## The deploy window is safe
 
 Deploying this code before the backfill runs leaves every account with **no**
 `studioMembers` row and every class with **no** `studioId`. A naive "no studio,
-no access" rule would lock the whole school out of its own classes between the
+no access" rule would lock the whole studio out of its own classes between the
 deploy and the backfill, so `classAccess` falls back to the rule that was in
 force before studios (`legacyStaff`: the admin, a `classRole: "teacher"`
 account, or an account that owns a class) whenever an account has no studio row.
@@ -28,7 +30,7 @@ account has a scope and the fallback is never consulted.
 
 The fallback is **narrowed to classes that have no `studioId`**. A class that
 belongs to a studio is reachable only through that studio, so a teacher with no
-studio row cannot open another school's class — the old rule revives access to
+studio row cannot open ananother studio's class — the old rule revives access to
 unplaced classes, not a global key. `allClasses` and the class-room sweep filter
 their lists the same way.
 
@@ -231,9 +233,9 @@ async function ensureStudioFolder(accessToken: string, studio: Doc<"studios">) {
 
 | studio name | folder |
 |---|---|
-| Shubha School of Arts | `nvshubhaschoolofarts` |
+| Shubha Studio of Arts | `nvshubhastudioofarts` |
 | Natya Manjari | `nvnatyamanjari` |
-| (the school that exists today) | `NatyaVault` — the folder already holding its files |
+| (the studio that exists today) | `NatyaVault` — the folder already holding its files |
 
 The rules that keep it from going wrong:
 
@@ -241,12 +243,12 @@ The rules that keep it from going wrong:
   only; the folder is looked up by id from then on, so a rename never strands
   files or creates a second folder.
 - **Uniqueness is checked on insert** (`studios.folderName`), adding `-2`, `-3`
-  when two schools pick the same name.
+  when two studios pick the same name.
 - **Find-then-create**, not create-always: a folder that already exists (a retry,
   or one the admin made by hand) is adopted rather than duplicated. Two uploads
   racing on a brand-new studio can each create a folder; the first id recorded
   wins and the stray empty folder is harmless — worth a note, not a lock.
-- **The existing archive is adopted, not moved.** The school that exists today
+- **The existing archive is adopted, not moved.** The studio that exists today
   gets `folderName: "NatyaVault"`, which is exactly the folder its files are
   already in, so the backfill moves no bytes.
 - **Personal uploads are unchanged**: no `code` (or no class archive connected)
@@ -257,7 +259,7 @@ per-class, per-studio check still gates the media grant.
 
 ## Later: Cloudflare R2
 
-Going public means other schools' media should not live in one Google account,
+Going public means another studios' media should not live in one Google account,
 so the switch is R2 — and the folder model above maps onto it one to one. Two
 additions make the swap a change of one module rather than every caller:
 
@@ -312,7 +314,7 @@ your studio** card in the app (dismissible with *Later*, back next visit).
 Creating the studio there does more than add a row: `createStudioFor` adopts
 every class the teacher owns that has no `studioId`, and puts each student in
 those classes into the new studio as well, so nobody is left in a class that
-belongs to no school. Newly signed-up teachers never see the card — their studio
+belongs to no studio. Newly signed-up teachers never see the card — their studio
 is set at sign-up.
 
 `scripts/check-studio-access.ts` covers this too: a teacher with no studio row
@@ -328,8 +330,25 @@ A **Studio** page (the top of the sidebar, above the class switcher):
 - classes: every class in the studio with member counts, create and delete;
 - its Drive archive connection status (phase 4).
 
-The existing **Admin** page stays platform-level: it lists studios with member and
-class counts, and can suspend one. It never reads a studio's media or messages.
+The same page carries the operator's **All studios** card: every studio with its
+owner, class and member counts, and the switch that suspends one. The **Admin**
+page stays platform-level and never reads a studio's media or messages.
+
+### What suspending does
+
+Suspending freezes a studio; it deletes nothing and is reversible with one click.
+
+- `classAccess` refuses the class to everybody but the platform admin, so
+  classes, attendance, practice, media and class rooms all stop answering;
+- `allClasses` returns closed and `myClasses` drops the frozen classes, so the
+  switcher never offers a class that would then refuse;
+- staff powers go with it: `staffForChat` and `drives.managesClasses` answer no,
+  so no chat is moderated and nothing is written into the archive;
+- the owner still sees the Studio page, with a banner saying it is suspended,
+  and their own people remain listed — nothing is lost.
+
+Only the operator (`setStudioSuspended`) can flip it. A studio whose row is
+missing counts as suspended, so a half-deleted studio fails closed.
 
 ## Migration
 
@@ -340,7 +359,7 @@ once after deploy, does the work idempotently and reports what it did:
 1. If no `studios` row exists, create one: name from a `settings` row
    (`key: "studioName"`) or `"NatyaVault"`, generated unique code, owner = the
    first teacher found (or the built-in admin), `joinOpen: false` — an existing
-   school should not hand out its code by accident.
+   studio should not hand out its code by accident.
 2. Every `classes` row missing `studioId` → the default studio.
 3. Every account gets a `studioMembers` row:
    - admin / `classRole: "teacher"` / owns a class → `teacher` (the default studio's
@@ -353,14 +372,20 @@ once after deploy, does the work idempotently and reports what it did:
 
 Re-running is safe: steps skip rows that already carry the field.
 
+It is optional now, and the sidebar button says so ("Group into one studio"): it
+keeps the old single-studio deployment in one piece. A teacher who instead names
+their own studio on the **Name your studio** card adopts their own unplaced
+classes and students (`createStudioFor`), which is the path to take when the
+teachers are really separate studios.
+
 ## Consequences worth knowing before we start
 
-1. **One archive, many folders means one account can read every school.** That
+1. **One archive, many folders means one account can read every studio.** That
    is the deliberate trade for now: one `vaultDriveTokens` row, one folder per
-   studio, no per-school Google setup. The isolation between studios is the
+   studio, no per-studio Google setup. The isolation between studios is the
    `classAccess` check, not the storage, so whoever controls the archive account
-   (or its refresh token) can read every school's media. Acceptable while the
-   other studios are yours; moving to R2 before opening up to real schools is
+   (or its refresh token) can read every studio's media. Acceptable while the
+   other studios are yours; moving to R2 before opening up to real studios is
    the right call, and the folder layout already carries over.
 2. **Group chats narrow to the studio.** `chats.createGroup` today offers "any mix
    of people"; that list becomes the caller's studio.
@@ -382,7 +407,7 @@ Re-running is safe: steps skip rows that already carry the field.
 | 2 | **Built.** Sign-up: a teacher enters a studio code or a new studio's name; a student's class code already names the studio | `pages/Auth.tsx`, `studios.validateCode`, `createStudio`, `joinStudio` | touches account creation, so it needs a fresh-account test |
 | 3 | **Built.** Studio page: rename, join code, teachers (add by username, remove), the studio's classes | `pages/Studio.tsx`, `main.tsx`, `AppShell.tsx`, `studios.ts` (`studioOverview`, `addTeacher`, `removeTeacher`), `components/studio-prompt.tsx` | low |
 | 4 | **Folder half built**: `startUpload` takes the class code, `studios.folderForClass` resolves the studio, `ensureFolder` creates or adopts `nv…`, and `driveFolderId` is cached on the studio. Still to do: the `mediaStore` seam so R2 is one new module | `drive.ts`, `studios.ts`, `lib/drive.ts`, `pages/MediaVault.tsx` | low — the existing archive is adopted as-is |
-| 5 | Platform admin: studio list, suspend | `admin.ts`, `pages/Admin.tsx` | low |
+| 5 | **Built.** Operator studio list with suspend/resume, join-code open/close, and suspension enforced in the access rule | `studios.ts` (`setStudioSuspended`, `setJoinOpen`, `studioIsSuspended`), `classes.ts`, `chats.ts`, `drive.ts`, `pages/Studio.tsx` | low — freeze only, nothing is deleted |
 
 Phase 1 leaves the app working exactly as it does today with a single studio, so
 it can ship on its own.

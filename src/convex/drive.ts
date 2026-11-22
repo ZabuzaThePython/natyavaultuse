@@ -9,7 +9,7 @@ import {
   query,
 } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
-import { legacyStaff, scopeFor } from "./studios";
+import { legacyStaff, scopeFor, studioIsSuspended } from "./studios";
 
 type DbCtx = Parameters<typeof scopeFor>[0];
 
@@ -24,7 +24,11 @@ async function managesClasses(
   const scope = await scopeFor(ctx, userId);
   // No studio row yet (pre-backfill): the pre-studios staff test applies.
   if (scope === null) return await legacyStaff(ctx, userId);
-  return scope.kind !== "student";
+  if (scope.kind === "platform") return true;
+  if (scope.kind === "student") return false;
+  // A suspended studio writes nothing into the archive.
+  if (await studioIsSuspended(ctx, scope.studioId)) return false;
+  return true;
 }
 
 /**
@@ -745,7 +749,7 @@ export async function vaultIsConnected(ctx: {
 /**
  * One folder in a Drive, created on first use.
  *
- * The name is the studio's folder (`nvshubhaschoolofarts`) when the upload
+ * The name is the studio's folder (`nvshubhastudioofarts`) when the upload
  * belongs to the class archive, and `NatyaVault` for an upload going into the
  * uploader's own Drive. A folder that already exists is adopted rather than
  * duplicated, so a retry or a folder the admin made by hand is reused.
@@ -820,7 +824,7 @@ export const startUpload = action({
       accessToken = await accessTokenFor(ctx, userId);
     }
     // Each studio's uploads live in their own folder of the shared archive, so
-    // one school's files never sit loose beside another's. A studio's folder id
+    // one studio's files never sit loose beside another's. A studio's folder id
     // is cached on its row after the first upload creates or adopts it.
     const studioFolder =
       target === "vault" && code

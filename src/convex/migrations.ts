@@ -11,7 +11,7 @@ import {
 /**
  * One-time (and safe to re-run) move of an existing deployment onto studios.
  *
- * Everything that existed before this feature belongs to one school, so it all
+ * Everything that existed before this feature belongs to one studio, so it all
  * lands in a single studio whose folder is the `NatyaVault` folder the archive
  * Drive already has — no file moves, no re-authorising Google.
  *
@@ -19,7 +19,7 @@ import {
  * studio are skipped, so running it twice changes nothing.
  */
 
-/** Folder the single-school deployment already writes into. */
+/** Folder the single-studio deployment already writes into. */
 const LEGACY_FOLDER = "NatyaVault";
 
 export const studiosBackfill = mutation({
@@ -47,7 +47,7 @@ export const studiosBackfill = mutation({
     // 1. The default studio, created once.
     let studio = await ctx.db.query("studios").first();
     if (studio === null) {
-      // The oldest teacher is the most likely owner of the school; the admin
+      // The oldest teacher is the most likely owner of the studio; the admin
       // account itself is the fallback.
       const owner =
         users.find((user) => user.classRole === "teacher") ??

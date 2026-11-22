@@ -1,5 +1,5 @@
 /**
- * Messages — the school's chats.
+ * Messages — the studio's chats.
  *
  * A teacher or the admin can start as many named group chats as they like and
  * a solo conversation with one person. The people picker lists every account,
@@ -418,7 +418,7 @@ function PeoplePicker({
   );
 }
 
-/** The "new chat" picker: everyone in the school, grouped by class. */
+/** The "new chat" picker: everyone in the studio, grouped by class. */
 function NewChatDialog({
   open,
   onOpenChange,
@@ -496,7 +496,7 @@ function NewChatDialog({
         <DialogHeader>
           <DialogTitle>New chat</DialogTitle>
           <DialogDescription>
-            Pick anyone from the school — students from different classes can
+            Pick anyone from the studio — students from different classes can
             share a chat. One person starts a private conversation; two or more
             start a group.
           </DialogDescription>
@@ -837,7 +837,7 @@ function MediaItemCard({
   );
 }
 
-/** "Add people": everyone in the school who isn't in this chat yet. */
+/** "Add people": everyone in the studio who isn't in this chat yet. */
 function AddMembersDialog({
   chatId,
   existing,
@@ -1384,7 +1384,7 @@ function ChatDetailsDialog({
               </AlertDialog>
               <p className="text-[11px] text-muted-foreground">
                 {isStaff
-                  ? "As a teacher or the admin, this deletes the chat for the whole school."
+                  ? "As a teacher or the admin, this deletes the chat for the whole studio."
                   : "This only removes the chat from your side."}
               </p>
             </div>
@@ -1721,7 +1721,7 @@ export default function Messages() {
                 <p className="text-sm font-medium">No chats yet</p>
                 <p className="text-xs text-muted-foreground">
                   {isStaff
-                    ? "Start a group with anyone in the school, or a private conversation with one person."
+                    ? "Start a group with anyone in the studio, or a private conversation with one person."
                     : "Your teacher can start a group or private chat with you."}
                 </p>
               </div>

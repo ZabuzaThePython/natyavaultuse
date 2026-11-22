@@ -87,7 +87,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
   const { isLoading: authLoading, isAuthenticated, signIn } = useAuth();
   const convex = useConvex();
   const ensureAdminAccount = useAction(api.admin.ensureAdminAccount);
-  // Whether the admin has opened NatyaVault to other dance schools.
+  // Whether the admin has opened NatyaVault to other dance studios.
   const openToPublic = useQuery(api.admin.publicMode) === true;
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -136,7 +136,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
   // teacher gave them; it is what puts them in the right class. (A teacher
   // signs up without one and creates classes from the Classes page.)
   const needsClassCode = mode === "signUp" && role !== "teacher";
-  // Every teacher belongs to a studio — their school — from the moment the
+  // Every teacher belongs to a studio — their studio — from the moment the
   // account exists; otherwise their classes would belong to nobody.
   const needsStudio = mode === "signUp" && role === "teacher";
   const normalizedCode = classCode.trim().toUpperCase();
@@ -210,7 +210,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
     }
     if (needsStudio) {
       if (studioMode === "join" && normalizedStudioCode.length !== 6) {
-        setError("Enter the six-character studio code your school gave you.");
+        setError("Enter the six-character code your studio gave you.");
         return;
       }
       if (studioMode === "create" && studioName.trim().length < 2) {
@@ -225,7 +225,9 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
         });
         if (!check.ok) {
           setError(
-            "That studio code doesn't match any studio — check it with your school.",
+            check.closed
+              ? "That studio isn't taking new teachers right now — ask its owner to add you."
+              : "That studio code doesn't match any studio — check it and try again.",
           );
           return;
         }
@@ -318,25 +320,11 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
       // back to this account, not to a blank "who are you?" (see
       // src/lib/last-account.ts).
       rememberAccount(username);
-      if (mode === "signUp" && needsStudio) {
-        // Place the new teacher in their studio. A failure here is reported but
-        // does not undo the account: the Admin/Classes area can set it up.
-        try {
-          const result =
-            studioMode === "join"
-              ? await convex.mutation(api.studios.joinStudio, {
-                  code: normalizedStudioCode,
-                })
-              : await convex.mutation(api.studios.createStudio, {
-                  name: studioName.trim(),
-                });
-          if (!result.ok) {
-            console.warn("Studio set-up at sign-up:", result.error);
-          }
-        } catch (caught) {
-          console.error("Studio set-up at sign-up failed:", caught);
-        }
-      }
+      // The studio itself is placed server-side from the code or name above
+      // (convex/auth/password.ts schedules studios.studioOnSignUp). It is not
+      // repeated from here: a client call racing that one could found a second
+      // studio for the same account. If placement ever fails, the "Name your
+      // studio" card offers it again on the first visit.
       if (mode === "signUp" && needsClassCode) {
         // The class this browser opens, straight away — no second code entry.
         setActiveClass(normalizedCode);
@@ -410,13 +398,13 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
               </div>
               <CardTitle className="text-xl">
                 {mode === "signUp" && openToPublic
-                  ? "Create your school vault"
+                  ? "Create your studio vault"
                   : "Create your vault"}
               </CardTitle>
               <CardDescription>
                 {mode === "signUp"
                   ? openToPublic
-                    ? "Open to dance schools — your full name, a username, a password, and you're in"
+                    ? "Open to dance studios — your full name, a username, a password, and you're in"
                     : "Enter your full name, choose a username, and set a password — students also need their class code"
                   : "Welcome back — enter your name and password to step in"}
               </CardDescription>
@@ -526,8 +514,8 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                         }
                         placeholder={
                           studioMode === "join"
-                            ? "Studio code from your school"
-                            : "Name of your school"
+                            ? "Studio join code"
+                            : "Name of your studio"
                         }
                         autoComplete="off"
                         autoCapitalize={
@@ -537,6 +525,11 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                         disabled={isLoading}
                       />
                     </div>
+                    {studioMode === "join" && studioCheck?.closed ? (
+                      <p className="text-xs text-amber-600 dark:text-amber-500">
+                        {studioCheck.name} isn't taking new teachers right now.
+                      </p>
+                    ) : null}
                     {studioMode === "join" && studioCheck?.ok ? (
                       <p className="text-xs text-muted-foreground">
                         Joining{" "}
@@ -725,7 +718,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                 {mode === "signUp" && !error && (
                   <p className="text-xs text-muted-foreground">
                     {openToPublic &&
-                      `Free to start — ${STORAGE_PLANS[0].storage} of vault storage, upgrade whenever your school grows. `}
+                      `Free to start — ${STORAGE_PLANS[0].storage} of vault storage, upgrade whenever your studio grows. `}
                     {needsClassCode
                       ? "Your class code is what puts you in your class — every class keeps its own vault, folders, practice log, and attendance. "
                       : "A teacher starts without a class and creates classes from the Classes page. "}

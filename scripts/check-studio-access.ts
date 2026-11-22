@@ -240,9 +240,49 @@ async function narrowedFallback() {
   );
 }
 
+async function suspendedStudio() {
+  console.log("\na suspended studio is frozen for its own people only");
+  const ctx = ctxWith({
+    users: Object.values(USERS),
+    studios: [
+      {
+        _id: "s_A",
+        code: "STU111",
+        name: "Studio A",
+        folderName: "nvstudioa",
+        suspendedAt: 1,
+      },
+    ],
+    studioMembers: [
+      { _id: "sm_1", studioId: "s_A", userId: "u_teacherA", role: "owner" },
+    ],
+    classes: [
+      { _id: "c_A", code: "AAA111", name: "Class A", ownerId: "u_teacherA", studioId: "s_A" },
+    ],
+    classMembers: [{ _id: "cm_1", code: "AAA111", userId: "u_studentA" }],
+  });
+  const row = (await ctx.db.get("c_A"))!;
+  check("owner of a suspended studio", await classAccess(ctx, "u_teacherA", row), {
+    read: false,
+    staff: false,
+    platform: false,
+  });
+  check("student of a suspended studio", await classAccess(ctx, "u_studentA", row), {
+    read: false,
+    staff: false,
+    platform: false,
+  });
+  check(
+    "platform admin on a suspended studio's class",
+    await classAccess(ctx, "u_admin", row),
+    { read: true, staff: true, platform: true },
+  );
+}
+
 await preBackfill();
 await postBackfill();
 await narrowedFallback();
+await suspendedStudio();
 
 console.log(
   failures.length === 0

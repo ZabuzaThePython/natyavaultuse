@@ -322,7 +322,7 @@ export const setPracticeLogEnabled = mutation({
 });
 
 /**
- * Whether NatyaVault is open to the public — other dance schools signing up
+ * Whether NatyaVault is open to the public — other dance studios signing up
  * for their own vault on a storage plan. Public (no credentials) so the
  * landing page and the auth card can dress themselves accordingly. Defaults
  * to disabled: the app ships as a private vault for a single class.

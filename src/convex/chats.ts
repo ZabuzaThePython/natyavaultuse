@@ -7,6 +7,7 @@ import {
   classAccess,
   legacyStaff,
   scopeFor,
+  studioIsSuspended,
   studioMemberIds,
 } from "./studios";
 import { isGiphyUrl } from "./gifs";
@@ -22,7 +23,7 @@ import {
  *
  * A teacher or the admin can start as many group chats as they like, naming
  * each one, and can start a solo conversation with a single person. The people
- * picker lists every account in the school, so a chat can mix classes — classes
+ * picker lists every account in the studio, so a chat can mix classes — classes
  * decide what a student may open, not who they may talk to.
  *
  * Every class also has one room of its own, created the first time somebody
@@ -104,7 +105,11 @@ async function staffForChat(
   const scope = await scopeFor(ctx, userId);
   // No studio row yet (pre-backfill): the pre-studios staff test applies.
   if (scope === null) return await legacyStaff(ctx, userId);
-  return scope.kind !== "student";
+  if (scope.kind === "platform") return true;
+  if (scope.kind === "student") return false;
+  // A suspended studio's teachers moderate nothing until it is resumed.
+  if (await studioIsSuspended(ctx, scope.studioId)) return false;
+  return true;
 }
 
 export async function chatAccess(
@@ -243,9 +248,9 @@ async function join(
 }
 
 /**
- * The people a chat can be started with: every account in the school, grouped
+ * The people a chat can be started with: every account in the studio, grouped
  * by class, with teachers and the admin in their own group. Staff only — a
- * student never sees the school's account list.
+ * student never sees the studio's account list.
  */
 export const people = query({
   args: { chatId: v.optional(v.id("chats")) },
@@ -505,7 +510,7 @@ export const ensureClassChat = mutation({
 
 /**
  * Every class room, for a teacher or the admin: each one is created if it does
- * not exist yet and the caller is put in it, so the whole school's rooms show
+ * not exist yet and the caller is put in it, so the whole studio's rooms show
  * up in their chat list instead of only the class they happen to have open.
  * A student gets nothing — they only ever see the room of the class they
  * joined.
@@ -522,7 +527,7 @@ export const ensureAllClassChats = mutation({
     }
 
     // Only this studio's rooms: every class in the deployment would put another
-    // school's rooms in this account's chat list.
+    // studio's rooms in this account's chat list.
     const found =
       scope?.kind === "studio"
         ? await ctx.db
@@ -602,7 +607,7 @@ export const createChat = mutation({
     }
 
     // A studio's staff may only start chats with its own people: another
-    // school's students must not end up in this conversation.
+    // studio's students must not end up in this conversation.
     if (scope?.kind === "studio") {
       const allowed = await studioMemberIds(ctx, scope.studioId);
       if (others.some((user) => !allowed.has(user._id))) {

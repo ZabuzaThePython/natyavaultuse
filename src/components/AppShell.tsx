@@ -83,7 +83,7 @@ const CLASSES_ITEM = {
   icon: Layers,
 };
 
-/** The school above the classes: its teachers, join code and class list. */
+/** The studio above the classes: its teachers, join code and class list. */
 const STUDIO_ITEM = {
   path: "/dashboard/studio",
   label: "Studio",
@@ -335,15 +335,15 @@ export default function AppShell() {
   const navigate = useNavigate();
   const location = useLocation();
   const { available: myClasses, isLoading: classesLoading } = useClasses();
-  // Teachers and the admin may open any class in the school, so their list is
-  // the whole school; a student keeps seeing only the class they joined.
+  // Teachers and the admin may open any class in the studio, so their list is
+  // the whole studio; a student keeps seeing only the class they joined.
   const {
-    classes: schoolClasses,
+    classes: studioClasses,
     canSeeAll,
     isLoading: allClassesLoading,
   } = useAllClasses();
 
-  // The platform admin looks at one school at a time: the picker below the
+  // The platform admin looks at one studio at a time: the picker below the
   // Studio heading chooses it, and the class list follows. A teacher's studio
   // is their own, and a student never sees this control at all.
   const { studioId: activeStudioId, setStudioId } = useActiveStudio();
@@ -457,9 +457,9 @@ export default function AppShell() {
     ? [...NAV_ITEMS, CLASSES_ITEM, STUDIO_ITEM]
     : NAV_ITEMS;
 
-  // What can be opened from the switcher: the whole school for a teacher or
+  // What can be opened from the switcher: the whole studio for a teacher or
   // the admin, otherwise just this account's own classes.
-  const switchableClasses = canSeeAll ? schoolClasses : myClasses;
+  const switchableClasses = canSeeAll ? studioClasses : myClasses;
 
   // Follow the account's class as soon as the deployment tells us about it: a
   // student opens the class they joined, a teacher their first own class. The
@@ -515,7 +515,7 @@ export default function AppShell() {
   const showNamePrompt = needsFullName === true && !nameAskedLater;
 
   // A teacher from before studios has classes that belong to no studio yet:
-  // one card asks them to name their school, and the server moves their classes
+  // one card asks them to name their studio, and the server moves their classes
   // and their students into it when they do (convex/studios.ts → createStudio).
   const [studioAskedLater, setStudioAskedLater] = useState(false);
   const showStudioPrompt =
@@ -596,7 +596,7 @@ export default function AppShell() {
                       htmlFor="studio-picker"
                       className="mb-1 block text-[11px] text-sidebar-foreground/60"
                     >
-                      School
+                      Studio
                     </label>
                     <Select
                       value={activeStudioId ?? studios[0].id}
@@ -607,7 +607,7 @@ export default function AppShell() {
                         aria-label="Choose a studio to view"
                         className="h-8 w-full cursor-pointer text-xs"
                       >
-                        <SelectValue placeholder="Pick a school" />
+                        <SelectValue placeholder="Pick a studio" />
                       </SelectTrigger>
                       <SelectContent>
                         {studios.map((studio) => (
@@ -617,6 +617,9 @@ export default function AppShell() {
                             className="cursor-pointer text-xs"
                           >
                             {studio.name}
+                            {studio.suspended ? (
+                              <span className="ml-1.5 text-destructive">suspended</span>
+                            ) : null}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -630,8 +633,9 @@ export default function AppShell() {
                     className="h-8 w-full cursor-pointer text-xs"
                     onClick={runBackfill}
                     disabled={backfilling}
+                    title="Puts every existing class in one studio named NatyaVault. Teachers without a studio are asked to name their own instead."
                   >
-                    {backfilling ? "Setting up…" : "Set up studios"}
+                    {backfilling ? "Setting up…" : "Group into one studio"}
                   </Button>
                 )}
               </div>

@@ -16,6 +16,7 @@ import {
   legacyStaff,
   membershipFor,
   scopeFor,
+  studioIsSuspended,
   studioRoleIn,
 } from "./studios";
 
@@ -29,7 +30,7 @@ export { CODE_LENGTH, findClass, generateCode, normalizeCode } from "./codes";
  * A class is created by a teacher (or the admin) and gets a six-character
  * join code. Students must enter that code when they create their account, so
  * every account belongs to exactly one class. Teachers and the admin see every
- * class in the school (`allClasses`); a student sees only the class they
+ * class in the studio (`allClasses`); a student sees only the class they
  * joined with their code. All the content the app stores
  * — media, folders, practice entries, messages, and attendance — is kept per
  * class, while the Google Drive connection stays on the account and is
@@ -52,7 +53,7 @@ export const validateCode = query({
   handler: async (ctx, { code }) => {
     const row = await findClass(ctx, code);
     if (!row) return { ok: false, name: null, studioName: null };
-    // The sign-up card can say which school the code belongs to, so a student
+    // The sign-up card can say which studio the code belongs to, so a student
     // knows they are joining the right class.
     const studio = row.studioId === undefined ? null : await ctx.db.get(row.studioId);
     return { ok: true, name: row.name, studioName: studio?.name ?? null };
@@ -78,11 +79,36 @@ export const myClasses = query({
       .query("classMembers")
       .withIndex("by_user", (q) => q.eq("userId", userId))
       .first();
+
+    // A suspended studio is frozen, so its classes are not offered in the
+    // switcher — the list must not hold a class that then refuses to open.
+    const frozen = new Map<Id<"studios">, boolean>();
+    const isFrozen = async (studioId: Id<"studios"> | undefined) => {
+      if (studioId === undefined) return false;
+      const known = frozen.get(studioId);
+      if (known !== undefined) return known;
+      const value = await studioIsSuspended(ctx, studioId);
+      frozen.set(studioId, value);
+      return value;
+    };
+
+    const visible: { code: string; name: string }[] = [];
+    for (const row of owned) {
+      if (await isFrozen(row.studioId)) continue;
+      visible.push({ code: row.code, name: row.name });
+    }
+
+    let joined: { code: string; name: string } | null = member
+      ? { code: member.code, name: member.className }
+      : null;
+    if (joined !== null) {
+      const row = await findClass(ctx, joined.code);
+      if (row !== null && (await isFrozen(row.studioId))) joined = null;
+    }
+
     return {
-      owned: owned
-        .map((row) => ({ code: row.code, name: row.name }))
-        .sort((a, b) => a.name.localeCompare(b.name)),
-      joined: member ? { code: member.code, name: member.className } : null,
+      owned: visible.sort((a, b) => a.name.localeCompare(b.name)),
+      joined,
     };
   },
 });
@@ -95,19 +121,19 @@ export const myClasses = query({
  */
 
 /**
- * Every class in the school, for teachers and the admin.
+ * Every class in the studio, for teachers and the admin.
  *
  * Anyone who is not staff — students among them — gets `canSeeAll: false` and
  * no rows, so a class code is never handed out by this query.
  */
 export const allClasses = query({
-  // The platform admin picks which school to look at; a teacher's own studio is
+  // The platform admin picks which studio to look at; a teacher's own studio is
   // implied and cannot be widened by passing another studio's id.
   args: { studioId: v.optional(v.id("studios")) },
   handler: async (ctx, { studioId }) => {
     const closed = {
       canSeeAll: false,
-      classes: [] as {
+      classes: [      ] as {
         code: string;
         name: string;
         ownerName: string;
@@ -115,7 +141,11 @@ export const allClasses = query({
         isMine: boolean;
         canDelete: boolean;
       }[],
-      studio: null as { id: Id<"studios">; name: string } | null,
+      studio: null as {
+        id: Id<"studios">;
+        name: string;
+        suspended: boolean;
+      } | null,
     };
     const userId = await getAuthUserId(ctx);
     if (userId === null) return closed;
@@ -136,6 +166,11 @@ export const allClasses = query({
           ? scope.studioId
           : undefined;
     const studio = target === undefined ? null : await ctx.db.get(target);
+    // A suspended studio is frozen for its own people; the operator may still
+    // look at it, which is how they check what they suspended.
+    if (studio !== null && studio.suspendedAt !== undefined && !platform) {
+      return closed;
+    }
 
     // No studio picked by the operator: every studio's classes, which is what
     // this list showed before studios existed.
@@ -157,7 +192,14 @@ export const allClasses = query({
 
     return {
       canSeeAll: true,
-      studio: studio === null ? null : { id: studio._id, name: studio.name },
+      studio:
+        studio === null
+          ? null
+          : {
+              id: studio._id,
+              name: studio.name,
+              suspended: studio.suspendedAt !== undefined,
+            },
       classes: rows
         .map((row) => ({
           code: row.code,
@@ -416,7 +458,7 @@ export const createClass = mutation({
  * and for joining straight away.
  *
  * Only the class's owner or the admin may delete it — every teacher can see
- * every class in the school, so seeing one must not mean being able to wipe
+ * every class in the studio, so seeing one must not mean being able to wipe
  * it. Returns the name so the caller can say what went.
  */
 export const deleteClass = mutation({

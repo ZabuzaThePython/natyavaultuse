@@ -1,7 +1,7 @@
 /**
  * Studios, as the app sees them.
  *
- * The platform admin can open several schools, so the shell keeps one selected:
+ * The platform admin can open several studios, so the shell keeps one selected:
  * it lives in this browser (per device, like the class that is on screen) and
  * every list that depends on it follows. A teacher's studio is decided by the
  * deployment and cannot be switched; a student only ever has their own.
@@ -93,6 +93,7 @@ export function useMyStudio(): {
     code: string;
     role: "owner" | "teacher" | "student";
     folderName: string;
+    suspended: boolean;
   } | null;
   isPlatformAdmin: boolean;
   isLoading: boolean;
@@ -105,7 +106,7 @@ export function useMyStudio(): {
   };
 }
 
-/** The studio's Drive folder name, e.g. "nvshubhaschoolofarts". */
+/** The studio's Drive folder name, e.g. "nvshubhastudioofarts". */
 export function studioFolderName(name: string): string {
   const slug = name.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 60);
   return `nv${slug || "studio"}`;

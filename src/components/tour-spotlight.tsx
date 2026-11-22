@@ -169,7 +169,7 @@ export function TourSpotlight({
       {
         id: "welcome",
         title: "Welcome to NatyaVault",
-        body: "Your dance school in one place — the archive, practice, attendance and messages. This is a quick tour of the real screens; skip it any time.",
+        body: "Your dance studio in one place — the archive, practice, attendance and messages. This is a quick tour of the real screens; skip it any time.",
         path: "/dashboard",
       },
       {
@@ -301,7 +301,7 @@ export function TourSpotlight({
       {
         id: "messages-actions",
         title: "Notifications and new chats",
-        body: "Turn notifications on, and — for teachers — start a new call or chat by searching the school.",
+        body: "Turn notifications on, and — for teachers — start a new call or chat by searching the studio.",
         path: "/dashboard/messages",
         target: "messages-actions",
       },
@@ -325,7 +325,7 @@ export function TourSpotlight({
       },
     ];
 
-    // The Practice Log can be switched off for the whole school by the admin,
+    // The Practice Log can be switched off for the whole studio by the admin,
     // so a student is not shown a section they cannot open.
     if (!practiceEnabled && !isStaff) {
       for (const id of [

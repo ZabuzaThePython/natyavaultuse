@@ -1,7 +1,7 @@
 /**
  * Storage plans advertised on the landing page once the admin opens the
  * public launch (see `publicMode` in convex/admin.ts), and listed in the
- * Admin area next to the switch. Each school gets its own vault; the plans
+ * Admin area next to the switch. Each studio gets its own vault; the plans
  * differ by how much storage that vault may hold. Edit this list to change
  * what the site offers.
  */
@@ -36,7 +36,7 @@ export const STORAGE_PLANS: StoragePlan[] = [
     price: "$9",
     cadence: "per month",
     storage: "25 GB",
-    blurb: "A growing school running several classes at once.",
+    blurb: "A growing studio running several classes at once.",
     features: [
       "Unlimited students",
       "25 GB of vault storage",

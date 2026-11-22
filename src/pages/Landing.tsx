@@ -61,12 +61,12 @@ const FEATURES = [
 /**
  * Landing page. Two states, decided by the admin's public launch switch
  * (`publicMode`): a private, invitation-only vault for one class, or an open
- * front door for other dance schools with the storage plans they sign up on.
+ * front door for other dance studios with the storage plans they sign up on.
  */
 export default function Landing() {
   const openToPublic = useQuery(api.admin.publicMode) === true;
   const { isLoading: authLoading, isAuthenticated } = useAuth();
-  const primaryCta = openToPublic ? "Start your school" : "Create your vault";
+  const primaryCta = openToPublic ? "Start your studio" : "Create your vault";
 
   // This device is already signed in — reopening NatyaVault picks the vault
   // back up instead of asking who you are (the page still renders while the
@@ -77,7 +77,7 @@ export default function Landing() {
 
   return (
     // With the public launch off the page is the single fixed-viewport screen
-    // it has always been; opening it to schools adds the plans section below
+    // it has always been; opening it to studios adds the plans section below
     // the fold, so the page is allowed to scroll.
     <div
       className={`flex min-h-dvh flex-col bg-background text-foreground ${
@@ -122,7 +122,7 @@ export default function Landing() {
               className="border-primary/30 bg-primary/5 text-primary"
             >
               {openToPublic
-                ? "For Bharatanatyam schools"
+                ? "For Bharatanatyam studios"
                 : "Bharatanatyam practice, organised"}
             </Badge>
             <h1 className="text-[1.75rem] leading-[1.05] font-bold tracking-tight sm:text-5xl lg:text-6xl">
@@ -137,7 +137,7 @@ export default function Landing() {
               {openToPublic && (
                 <>
                   {" "}
-                  Run a dance school? Open a vault for your school and invite
+                  Run a dance studio? Open a vault for your studio and invite
                   every class.
                 </>
               )}
@@ -208,10 +208,10 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* ------------------------------------------ public launch: schools */}
+      {/* ------------------------------------------ public launch: studios */}
       {openToPublic && (
         <section
-          id="schools"
+          id="studios"
           className="shrink-0 border-t border-border/70 bg-background"
         >
           <div className="mx-auto w-full max-w-6xl px-4 py-10 sm:px-6">
@@ -220,13 +220,13 @@ export default function Landing() {
                 variant="outline"
                 className="border-gold/40 bg-gold/15 text-gold-foreground"
               >
-                For dance schools
+                For dance studios
               </Badge>
               <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">
-                Bring your school onto NatyaVault
+                Bring your studio onto NatyaVault
               </h2>
               <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
-                Every school gets its own vault — separate folders, practice
+                Every studio gets its own vault — separate folders, practice
                 logs, and messages for your classes. Start free and pay a small
                 monthly amount for the storage you actually use.
               </p>
@@ -291,7 +291,7 @@ export default function Landing() {
             </div>
 
             <p className="mt-4 text-xs text-muted-foreground">
-              Billed monthly, per school — cancel whenever you like, and your
+              Billed monthly, per studio — cancel whenever you like, and your
               files stay yours.
             </p>
           </div>

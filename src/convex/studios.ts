@@ -16,13 +16,13 @@ import { findClass, findStudio, generateCode } from "./codes";
 /**
  * Studios: the tenant above a class.
  *
- * One deployment can host several schools. A studio owns its teachers, its
+ * One deployment can host several studios. A studio owns its teachers, its
  * classes and its folder in the archive Drive, and a teacher of one studio must
  * never see another's classes. Everything the app stores is keyed by a class
  * join code, and class codes are unique deployment-wide, so the studio is
  * derivable from the class; this module holds the one rule that decides who may
  * open which class, replacing the deployment-wide "sees every class" test the
- * app used while it was a single school.
+ * app used while it was a single studio.
  *
  * The platform admin (the built-in `admin` account) is the one account that
  * crosses studios — that is what makes it the operator.
@@ -45,9 +45,13 @@ export type Scope =
   | { kind: "student"; studioId: Id<"studios"> };
 
 /**
- * The operator account: the built-in admin, by its account name or its role.
- * Same test as convex/admin.ts, kept here so the studio layer needs no import
- * from the admin module (which imports this one).
+ * The operator account: the built-in admin, by its sign-in name or its role.
+ *
+ * The display name is deliberately not part of this test. It used to be, and
+ * anybody could type "admin" as their full name at sign-up — which made their
+ * account look like the operator and, since the studio work, would have reached
+ * every studio's classes. The sign-in name is reserved at sign-up (the card and
+ * the provider both refuse it), so it is the only safe signal here.
  */
 export async function isPlatformAdmin(
   ctx: QueryCtx | MutationCtx,
@@ -55,11 +59,16 @@ export async function isPlatformAdmin(
 ): Promise<boolean> {
   const me = await ctx.db.get(userId);
   if (me === null) return false;
-  return (
-    me.email === ADMIN_ACCOUNT ||
-    me.role === "admin" ||
-    me.name?.trim().toLowerCase() === ADMIN_ACCOUNT
-  );
+  return me.email === ADMIN_ACCOUNT || me.role === "admin";
+}
+
+/** Whether a studio is suspended (or gone), which freezes everything in it. */
+export async function studioIsSuspended(
+  ctx: QueryCtx | MutationCtx,
+  studioId: Id<"studios">,
+): Promise<boolean> {
+  const studio = await ctx.db.get(studioId);
+  return studio === null || studio.suspendedAt !== undefined;
 }
 
 /**
@@ -173,6 +182,12 @@ export async function classAccess(
     return { read: true, staff: true, platform: true };
   }
 
+  // A suspended studio is frozen: its staff and students lose access until the
+  // operator lifts it. Only the platform admin above is unaffected.
+  if (row.studioId !== undefined && (await studioIsSuspended(ctx, row.studioId))) {
+    return { read: false, staff: false, platform: false };
+  }
+
   const sameStudio =
     row.studioId === undefined || row.studioId === scope.studioId;
   if (scope.kind === "studio" && sameStudio) {
@@ -208,8 +223,8 @@ export async function studioMemberIds(
 
 /**
  * A studio's folder in the archive Drive: `nv` + its name with everything but
- * letters and digits dropped, so "Shubha School of Arts" is
- * `nvshubhaschoolofarts`. Fixed at creation (see the schema).
+ * letters and digits dropped, so "Shubha Studio of Arts" is
+ * `nvshubhastudioofarts`. Fixed at creation (see the schema).
  */
 export function folderNameFor(name: string): string {
   const slug = name.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, NAME_MAX);
@@ -309,6 +324,7 @@ export const myStudio = query({
         code: studio.code,
         role: member.role,
         folderName: studio.folderName,
+        suspended: studio.suspendedAt !== undefined,
       },
     };
   },
@@ -316,7 +332,7 @@ export const myStudio = query({
 
 /**
  * Every studio, for the platform admin's picker: the operator chooses which
- * school to look at instead of seeing every school's classes in one list.
+ * studio to look at instead of seeing every studio's classes in one list.
  */
 export const listStudios = query({
   args: {},
@@ -420,7 +436,7 @@ export interface StudioCreation {
 }
 
 /**
- * Create a studio owned by `userId`, and bring their existing school with it.
+ * Create a studio owned by `userId`, and bring their existing studio with it.
  *
  * A teacher who was teaching before studios existed has classes with no
  * `studioId`; founding their studio adopts those classes and puts every student
@@ -473,7 +489,7 @@ export async function createStudioFor(
     name: ownerName,
   });
 
-  // The school they were already running comes along.
+  // The studio they were already running comes along.
   const owned = await ctx.db
     .query("classes")
     .withIndex("by_owner", (q) => q.eq("ownerId", userId))
@@ -572,9 +588,12 @@ export const validateCode = query({
   handler: async (ctx, { code }) => {
     const row = await findStudio(ctx, code);
     if (row === null || row.suspendedAt !== undefined) {
-      return { ok: false, name: null };
+      return { ok: false, name: null, closed: false };
     }
-    return { ok: true, name: row.name };
+    // A real studio that is not accepting new teachers is a different answer
+    // from a code that matches nothing, and the card says so.
+    if (!row.joinOpen) return { ok: false, name: row.name, closed: true };
+    return { ok: true, name: row.name, closed: false };
   },
 });
 
@@ -669,6 +688,7 @@ interface StudioOverview {
     folderName: string;
     joinOpen: boolean;
     ownerName: string;
+    suspended: boolean;
   } | null;
   teachers: {
     id: Id<"users">;
@@ -683,12 +703,13 @@ interface StudioOverview {
 async function studioForStaff(
   ctx: QueryCtx | MutationCtx,
   userId: Id<"users">,
+  preferred?: Id<"studios">,
 ): Promise<{ studio: Doc<"studios">; platform: boolean } | null> {
   const scope = await scopeFor(ctx, userId);
   if (scope === null || scope.kind === "student") return null;
   const studioId =
     scope.kind === "platform"
-      ? (await ctx.db.query("studios").first())?._id
+      ? (preferred ?? (await ctx.db.query("studios").first())?._id)
       : scope.studioId;
   if (studioId === undefined) return null;
   const studio = await ctx.db.get(studioId);
@@ -700,11 +721,12 @@ async function studioForStaff(
  * The studio page: its name, its join code, its teachers and its classes.
  *
  * Readable by the studio's staff; a student gets `ok: false`, so a class code
- * never turns into a list of the school's accounts.
+ * never turns into a list of the studio's accounts.
  */
 export const studioOverview = query({
-  args: {},
-  handler: async (ctx): Promise<StudioOverview> => {
+  // The platform admin can look at any studio — the one picked in the shell.
+  args: { studioId: v.optional(v.id("studios")) },
+  handler: async (ctx, { studioId }): Promise<StudioOverview> => {
     const closed: StudioOverview = {
       ok: false,
       isPlatformAdmin: false,
@@ -716,7 +738,7 @@ export const studioOverview = query({
     const userId = await getAuthUserId(ctx);
     if (userId === null) return closed;
 
-    const found = await studioForStaff(ctx, userId);
+    const found = await studioForStaff(ctx, userId, studioId);
     if (found === null) return closed;
     const { studio, platform } = found;
 
@@ -747,6 +769,7 @@ export const studioOverview = query({
         folderName: studio.folderName,
         joinOpen: studio.joinOpen,
         ownerName: studio.ownerName,
+        suspended: studio.suspendedAt !== undefined,
       },
       teachers: teachers
         .filter((row) => row.role !== "student")
@@ -771,15 +794,16 @@ export const studioOverview = query({
 
 /** Add a teacher to the studio by their username. Its owner, or the admin. */
 export const addTeacher = mutation({
-  args: { username: v.string() },
+  // The operator may look at several studios, so the one on screen is passed in.
+  args: { username: v.string(), studioId: v.optional(v.id("studios")) },
   handler: async (
     ctx,
-    { username },
+    { username, studioId },
   ): Promise<{ ok: boolean; error: string | null; name: string | null }> => {
     const me = await getAuthUserId(ctx);
     if (me === null) return { ok: false, error: "Sign in first.", name: null };
 
-    const found = await studioForStaff(ctx, me);
+    const found = await studioForStaff(ctx, me, studioId);
     if (found === null) return { ok: false, error: "You are not in a studio.", name: null };
     const { studio, platform } = found;
     if (!platform && studio.ownerId !== me) {
@@ -822,15 +846,15 @@ export const addTeacher = mutation({
  * here — their classes would be left in a studio they are no longer in.
  */
 export const removeTeacher = mutation({
-  args: { userId: v.id("users") },
+  args: { userId: v.id("users"), studioId: v.optional(v.id("studios")) },
   handler: async (
     ctx,
-    { userId: targetId },
+    { userId: targetId, studioId },
   ): Promise<{ ok: boolean; error: string | null }> => {
     const me = await getAuthUserId(ctx);
     if (me === null) return { ok: false, error: "Sign in first." };
 
-    const found = await studioForStaff(ctx, me);
+    const found = await studioForStaff(ctx, me, studioId);
     if (found === null) return { ok: false, error: "You are not in a studio." };
     const { studio, platform } = found;
     if (!platform && studio.ownerId !== me) {
@@ -858,6 +882,55 @@ export const removeTeacher = mutation({
       )
       .unique();
     if (row !== null) await ctx.db.delete(row._id);
+    return { ok: true, error: null };
+  },
+});
+
+/**
+ * Suspend or resume a studio — the operator's switch.
+ *
+ * A suspended studio is frozen rather than deleted: its classes, attendance,
+ * practice, media and class rooms stop answering (see `classAccess`), its
+ * teachers lose their staff powers, and nothing is removed. Flipping it back
+ * restores everything exactly as it was.
+ */
+export const setStudioSuspended = mutation({
+  args: { studioId: v.id("studios"), suspended: v.boolean() },
+  handler: async (
+    ctx,
+    { studioId, suspended },
+  ): Promise<{ ok: boolean; error: string | null }> => {
+    const me = await getAuthUserId(ctx);
+    if (me === null) return { ok: false, error: "Sign in first." };
+    if (!(await isPlatformAdmin(ctx, me))) {
+      return { ok: false, error: "Only the operator can suspend a studio." };
+    }
+    const row = await ctx.db.get(studioId);
+    if (row === null) return { ok: false, error: "That studio no longer exists." };
+    await ctx.db.patch(studioId, {
+      suspendedAt: suspended ? Date.now() : undefined,
+    });
+    return { ok: true, error: null };
+  },
+});
+
+/** Open or close a studio to new teachers joining with its code. */
+export const setJoinOpen = mutation({
+  args: { studioId: v.id("studios"), open: v.boolean() },
+  handler: async (
+    ctx,
+    { studioId, open },
+  ): Promise<{ ok: boolean; error: string | null }> => {
+    const me = await getAuthUserId(ctx);
+    if (me === null) return { ok: false, error: "Sign in first." };
+    const found = await studioForStaff(ctx, me, studioId);
+    if (found === null || found.studio._id !== studioId) {
+      return { ok: false, error: "You do not manage that studio." };
+    }
+    if (!found.platform && found.studio.ownerId !== me) {
+      return { ok: false, error: "Only the studio's owner can change this." };
+    }
+    await ctx.db.patch(studioId, { joinOpen: open });
     return { ok: true, error: null };
   },
 });

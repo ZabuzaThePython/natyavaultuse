@@ -213,7 +213,7 @@ export default function Admin() {
         setPublicMode(enabled);
         toast.success(
           enabled
-            ? "NatyaVault is open to other dance schools."
+            ? "NatyaVault is open to other dance studios."
             : "NatyaVault is private again.",
         );
       } else {
@@ -456,7 +456,7 @@ export default function Admin() {
             Public launch
           </CardTitle>
           <CardDescription>
-            Open NatyaVault to other dance schools. While it is off, the app is
+            Open NatyaVault to other dance studios. While it is off, the app is
             a private vault for your own class and the landing page says so.
           </CardDescription>
         </CardHeader>
@@ -466,7 +466,7 @@ export default function Admin() {
               <p className="text-sm font-medium">Open to the public</p>
               <p className="text-xs text-muted-foreground">
                 {vault.publicMode
-                  ? "Other dance schools can sign up and pick a storage plan."
+                  ? "Other dance studios can sign up and pick a storage plan."
                   : "Invitation only — the landing page advertises no plans."}
               </p>
             </div>
@@ -476,7 +476,7 @@ export default function Admin() {
                 onCheckedChange={(checked) =>
                   void handleTogglePublicMode(checked)
                 }
-                aria-label="Open NatyaVault to other dance schools"
+                aria-label="Open NatyaVault to other dance studios"
               />
               <span className="text-sm font-medium">
                 {vault.publicMode ? "Live" : "Disabled"}
@@ -500,7 +500,7 @@ export default function Admin() {
 
           <p className="text-xs text-muted-foreground">
             These are the plans the public page lists. Card payments are not
-            connected yet, so schools start on the free tier while billing is
+            connected yet, so studios start on the free tier while billing is
             still to be wired up.
           </p>
         </CardContent>
@@ -595,7 +595,7 @@ export default function Admin() {
                     account.isAdmin
                       ? "Built-in admin account"
                       : account.isTeacher
-                        ? "Teacher — can open every class in the school"
+                        ? "Teacher — can open every class in the studio"
                         : "Student — sees only their own class"
                   }
                 >

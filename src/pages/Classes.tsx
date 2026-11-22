@@ -11,7 +11,7 @@
  * so a student on another laptop joins the same class; the content for each
  * class lives in this browser's vault, one bucket per join code.
  *
- * A teacher (and the admin) sees every class in the school, not just their
+ * A teacher (and the admin) sees every class in the studio, not just their
  * own, so classes can be handed over or shared: the list below comes from
  * `classes.allClasses`. A student still only ever sees the class they joined.
  */
@@ -102,29 +102,29 @@ export default function Classes() {
   const vault = useVault();
   const isAdmin = useIsAdmin();
   const { joined, available, isLoading } = useClasses();
-  // Every class in the school — only teachers and the admin receive rows.
+  // Every class in the studio — only teachers and the admin receive rows.
   const {
-    classes: schoolClasses,
+    classes: studioClasses,
     canSeeAll,
-    isLoading: schoolLoading,
+    isLoading: studioLoading,
   } = useAllClasses();
-  // Which school's classes these are, for the admin: the one picked in the
+  // Which studio's classes these are, for the admin: the one picked in the
   // sidebar. A teacher's studio is decided by the deployment.
   const { studioId: activeStudioId } = useActiveStudio();
   const createClass = useMutation(api.classes.createClass);
   const joinClass = useMutation(api.classes.joinClass);
   const deleteClass = useMutation(api.classes.deleteClass);
 
-  // A teacher runs their own classes; the admin can set one up for a school.
+  // A teacher runs their own classes; the admin can set one up for a studio.
   // Staff status comes from the deployment, not the role stored in this
   // browser (see classes.viewerRole).
   const { isStaff: viewerIsStaff } = useViewerIsStaff();
   const canCreate = viewerIsStaff || isAdmin;
-  // A teacher (and the admin) sees every class in the school; until that list
+  // A teacher (and the admin) sees every class in the studio; until that list
   // arrives — and for anyone else — fall back to the classes this account
   // owns or has joined.
   const rows: ClassOverview[] = canSeeAll
-    ? schoolClasses
+    ? studioClasses
     : available.map((entry) => ({
         ...entry,
         ownerName: "",
@@ -132,7 +132,7 @@ export default function Classes() {
         isMine: false,
         canDelete: false,
       }));
-  const loadingList = isLoading || schoolLoading;
+  const loadingList = isLoading || studioLoading;
 
   const [newClassName, setNewClassName] = useState("");
   const [creating, setCreating] = useState(false);
@@ -233,7 +233,7 @@ export default function Classes() {
         <p className="text-sm font-medium text-muted-foreground">
           {canCreate
             ? canSeeAll
-              ? "Every class in your school"
+              ? "Every class in your studio"
               : "Classes you run"
             : "Your class"}
         </p>
@@ -288,7 +288,7 @@ export default function Classes() {
 
       {canCreate ? (
         <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
-          {/* ------------------------------------------- classes in the school */}
+          {/* ------------------------------------------- classes in the studio */}
           <section className="flex flex-col gap-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
@@ -298,7 +298,7 @@ export default function Classes() {
                 </h2>
                 <p className="text-xs text-muted-foreground">
                   {canSeeAll
-                    ? "Every class in the school — switch into any of them, and keep your code to hand for your own students."
+                    ? "Every class in the studio — switch into any of them, and keep your code to hand for your own students."
                     : "Share a code with a class — students enter it when they create their account."}
                 </p>
               </div>

@@ -43,7 +43,7 @@ const schema = defineSchema(
 
       // Whether the account signed up as a teacher or a student. Recorded by
       // the password provider at sign-up (see convex/auth/password.ts) so the
-      // server can decide who may list every class in the school.
+      // server can decide who may list every class in the studio.
       classRole: v.optional(
         v.union(v.literal("teacher"), v.literal("student")),
       ),
@@ -63,7 +63,7 @@ const schema = defineSchema(
     // add other tables here
 
     // Studios: the tenant above a class. One deployment can host several
-    // schools, and a studio owns its teachers, its classes and its folder in
+    // studios, and a studio owns its teachers, its classes and its folder in
     // the archive Drive. Everything a person can reach belongs to exactly one
     // studio; only the built-in admin crosses that line (see convex/studios.ts).
     studios: defineTable({
@@ -75,7 +75,7 @@ const schema = defineSchema(
       ownerName: v.string(),
       /**
        * Folder in the class-archive Drive, fixed at creation: `nv` + the name
-       * without spaces. Settled once so a rename never strands a school's files.
+       * without spaces. Settled once so a rename never strands a studio's files.
        */
       folderName: v.string(),
       /** Drive folder id, cached the first time an upload creates or adopts it. */

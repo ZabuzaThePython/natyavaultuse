@@ -8,7 +8,7 @@
  * practice entries, messages, attendance — is kept per class there. The
  * Google Drive connection is on the account, so every class shares it.
  *
- * Teachers and the admin see every class in the school (classes.allClasses);
+ * Teachers and the admin see every class in the studio (classes.allClasses);
  * a student only ever sees the one they joined.
  */
 import { api } from "@/convex/_generated/api";
@@ -34,7 +34,7 @@ export interface ClassesState {
   isLoading: boolean;
 }
 
-/** A class as the school list shows it, with who runs it and how many joined. */
+/** A class as the studio list shows it, with who runs it and how many joined. */
 export interface ClassOverview extends ClassSummary {
   ownerName: string;
   members: number;
@@ -42,25 +42,25 @@ export interface ClassOverview extends ClassSummary {
   isMine: boolean;
   /**
    * True when this account may delete the class: the teacher who created it,
-   * or the admin. Seeing a class in the school list is not enough.
+   * or the admin. Seeing a class in the studio list is not enough.
    */
   canDelete: boolean;
 }
 
 export interface AllClassesState {
   classes: ClassOverview[];
-  /** False for students: they may not see the school's other classes. */
+  /** False for students: they may not see the studio's other classes. */
   canSeeAll: boolean;
   isLoading: boolean;
 }
 
 /**
- * Every class in the school, for teachers and the admin. A student gets
+ * Every class in the studio, for teachers and the admin. A student gets
  * `canSeeAll: false` and an empty list, so they keep seeing only the class
  * they joined.
  */
 export function useAllClasses(): AllClassesState {
-  // The platform admin looks at one school at a time; for a teacher the studio
+  // The platform admin looks at one studio at a time; for a teacher the studio
   // is their own and the argument is ignored by the deployment.
   const { studioId } = useActiveStudio();
   const data = useQuery(

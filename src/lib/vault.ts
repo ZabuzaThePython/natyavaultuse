@@ -165,7 +165,7 @@ export interface VaultState extends ClassVaultData {
   practiceLogEnabled: boolean;
   /**
    * Admin-controlled switch: while true NatyaVault is open to the public and
-   * other dance schools can sign up for their own vault on a storage plan.
+   * other dance studios can sign up for their own vault on a storage plan.
    * Off by default, so the app ships as a private vault for one class. Like
    * the Practice Log switch, the Convex deployment holds the authoritative
    * value (convex/admin.ts) and this local copy mirrors it for the UI.
