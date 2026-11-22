@@ -39,6 +39,7 @@ import {
 } from "@/lib/drive";
 import { useAuth } from "@/hooks/use-auth";
 import { useViewerIsStaff } from "@/lib/classes";
+import { useStudioName } from "@/lib/studios";
 import { vaultItems, type VaultItem } from "@/lib/vault-shared";
 import {
   addFolder,
@@ -144,6 +145,8 @@ export default function MediaVault() {
   const { user } = useAuth();
   const vault = useVault();
   const currentName = user?.name ?? "You";
+  // The studio's vault, so the heading names it instead of the generic label.
+  const studioName = useStudioName();
 
   const [tab, setTab] = useState<MediaKind>("audio");
   const [query, setQuery] = useState("");
@@ -1213,7 +1216,7 @@ export default function MediaVault() {
             ))}
           </nav>
           <h1 className="mt-1 truncate text-2xl font-bold tracking-tight sm:text-3xl">
-            {currentFolder ? currentFolder.name : "Media Vault"}
+            {currentFolder ? currentFolder.name : (studioName ?? "Media Vault")}
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Practice tracks and dance clips, shared with everyone in your class.

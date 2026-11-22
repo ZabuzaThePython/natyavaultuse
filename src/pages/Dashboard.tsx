@@ -9,6 +9,7 @@ import {
   useViewerIsStaff,
 } from "@/lib/classes";
 import { useClassPractice } from "@/lib/practice";
+import { useStudioName } from "@/lib/studios";
 import {
   attendanceFor,
   attendanceSheetNames,
@@ -38,6 +39,8 @@ import { Link } from "react-router";
 export default function Dashboard() {
   const { user } = useAuth();
   const vault = useVault();
+  // The studio on screen names the vault, instead of a generic label.
+  const studioName = useStudioName();
   const [playing, setPlaying] = useState<MediaItem | null>(null);
   const practiceEnabled = vault.practiceLogEnabled;
   // The account's real role, from the deployment — a student signing in on a
@@ -181,7 +184,7 @@ export default function Dashboard() {
       <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="text-sm font-medium text-muted-foreground">
-            Personal vault
+            {studioName ?? "Personal vault"}
           </p>
           <h1 className="mt-1 text-2xl font-bold tracking-tight sm:text-3xl">
             Namaste, {firstName}

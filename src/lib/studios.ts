@@ -106,6 +106,21 @@ export function useMyStudio(): {
   };
 }
 
+/**
+ * The name of the studio on screen.
+ *
+ * The platform admin sees the studio picked in the sidebar switcher; everyone
+ * else sees the studio their account belongs to. Null while that answer is on
+ * its way, or for an account that has no studio yet (a personal vault).
+ */
+export function useStudioName(): string | null {
+  const { studioId } = useActiveStudio();
+  const { studio } = useMyStudio();
+  const { studios } = useStudios();
+  const picked = studios.find((entry) => entry.id === studioId) ?? studios[0];
+  return studio?.name ?? picked?.name ?? null;
+}
+
 /** The studio's Drive folder name, e.g. "nvshubhastudioofarts". */
 export function studioFolderName(name: string): string {
   const slug = name.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 60);
