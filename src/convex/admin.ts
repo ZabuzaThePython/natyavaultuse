@@ -164,7 +164,10 @@ async function adminAuthorized(
  * disappear because this device's storage was cleared, filled, or replaced.
  */
 export const hasAdminAccess = query({
-  args: {},
+  // `retry` is a cache-buster, not a fact: the client bumps it when this
+  // subscription has gone quiet (a deploy mid-flight, a dropped socket), so
+  // the shell asks again instead of leaving the admin gate closed.
+  args: { retry: v.optional(v.number()) },
   handler: async (ctx) => {
     if (await signedInAsAdmin(ctx)) return true;
     const userId = await getAuthUserId(ctx);
