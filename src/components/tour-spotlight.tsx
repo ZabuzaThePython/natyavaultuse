@@ -197,8 +197,8 @@ export function TourSpotlight({
         id: "dash-fees",
         title: isStaff ? "Fees" : "Your fees",
         body: isStaff
-          ? "Pick the month, then tick each student who has paid. A tick appears on their own dashboard straight away; un-ticking takes it back."
-          : "A month calendar of your fees, ticked off by your teacher. It is read-only here — only your teacher records a payment.",
+          ? "A year at a glance: months across the top, students down the side. Tap a cell to tick that month as paid — it appears on the student's dashboard straight away; tap again to undo."
+          : "A year at a glance: months across the top, your name down the side. A tick is a month your teacher has recorded as paid. It is read-only here.",
         target: "dash-fees",
       },
       {

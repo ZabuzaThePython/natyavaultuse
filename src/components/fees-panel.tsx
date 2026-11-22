@@ -1,34 +1,44 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
 import { api } from "@/convex/_generated/api";
 import { useAuth } from "@/hooks/use-auth";
 import { useViewerIsStaff } from "@/lib/classes";
 import { shortNames } from "@/lib/display-name";
-import { monthKey, monthLabel, shiftMonth, useClassFees } from "@/lib/fees";
+import { monthKey, useClassFees } from "@/lib/fees";
 import { useVault } from "@/lib/vault";
 import { cn } from "@/lib/utils";
-import {
-  Check,
-  ChevronLeft,
-  ChevronRight,
-  Lock,
-  Wallet,
-} from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Lock, Wallet } from "lucide-react";
 import { useMutation } from "convex/react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
-const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const MONTHS = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
+
+/** One cell of the grid: a student's month. */
+const cellKey = (name: string, month: string) =>
+  `${name.trim().toLowerCase()}|${month}`;
 
 /**
- * Fees, on the dashboard.
+ * Fees, on the dashboard — a year at a glance.
  *
- * A teacher picks a month and ticks each student who has paid; a student sees
- * the form his teacher already ticked, as a month calendar they can read but
- * not change. Both read the same rows (convex/fees.ts), so a tick lands on the
- * student's page straight away.
+ * Months run across the top, students down the side, and each cell is one
+ * student's fee for that month. A teacher taps a cell to tick it; the tick
+ * lands on that student's own dashboard, whose view is the same grid narrowed
+ * to their one row, read-only. Both read the same rows (convex/fees.ts).
  */
 export function FeesPanel({
   names,
@@ -44,16 +54,24 @@ export function FeesPanel({
   const { isStaff: isTeacher, isLoading: roleLoading } = useViewerIsStaff();
   const { fees, isLoading } = useClassFees(vault.classCode);
   const setFee = useMutation(api.fees.setFee);
-  const [month, setMonth] = useState(() => monthKey());
+  const [year, setYear] = useState(() => new Date().getFullYear());
   const [saving, setSaving] = useState<string | null>(null);
 
   const key = (name: string) => name.trim().toLowerCase();
   const myName = user?.name ?? "You";
+  const now = new Date();
+  const thisMonth = monthKey(now);
 
-  const paidNames = new Set(
-    fees
-      .filter((fee) => fee.month === month && fee.paid)
-      .map((fee) => key(fee.studentName)),
+  const columns = useMemo(
+    () =>
+      MONTHS.map(
+        (_, index) => `${year}-${String(index + 1).padStart(2, "0")}`,
+      ),
+    [year],
+  );
+  // Every tick on the board, so a row reads its own cells without scanning.
+  const paidCells = new Set(
+    fees.filter((fee) => fee.paid).map((fee) => cellKey(fee.studentName, fee.month)),
   );
   const roster = useMemo(
     () =>
@@ -63,16 +81,25 @@ export function FeesPanel({
     [names],
   );
   const labels = useMemo(() => shortNames(roster), [roster]);
-  const paidCount = roster.filter((name) => paidNames.has(key(name))).length;
-  const myPaid = paidNames.has(key(myName));
+  // A student sees only their own row; their name is matched the way the rows
+  // are stored, so a teacher's tick is found even if the capitals differ.
+  const myRow = roster.find((name) => key(name) === key(myName)) ?? myName;
+  const rows = isTeacher ? roster : [myRow];
+  const paidThisMonth = roster.filter((name) =>
+    paidCells.has(cellKey(name, thisMonth)),
+  ).length;
+  const myMonthsPaid = columns.filter((month) =>
+    paidCells.has(cellKey(myRow, month)),
+  ).length;
   const settled = ready && !roleLoading && !isLoading;
 
-  const toggle = async (name: string, paid: boolean) => {
+  const toggle = async (name: string, month: string, paid: boolean) => {
     if (!vault.classCode) {
       toast.error("Open a class first.");
       return;
     }
-    setSaving(name);
+    const cell = cellKey(name, month);
+    setSaving(cell);
     try {
       const result = await setFee({
         code: vault.classCode,
@@ -85,10 +112,15 @@ export function FeesPanel({
         return;
       }
       const label = labels.get(name) ?? name;
+      const monthLabel = new Date(
+        Number(month.slice(0, 4)),
+        Number(month.slice(5, 7)) - 1,
+        1,
+      ).toLocaleDateString(undefined, { month: "long", year: "numeric" });
       toast.success(
         paid
-          ? `${label} marked paid for ${monthLabel(month)}.`
-          : `${label} unmarked for ${monthLabel(month)}.`,
+          ? `${label} marked paid for ${monthLabel}.`
+          : `${label} unmarked for ${monthLabel}.`,
       );
     } catch (error) {
       console.error("Saving a fee mark failed:", error);
@@ -97,13 +129,6 @@ export function FeesPanel({
       setSaving(null);
     }
   };
-
-  // The month grid: Monday-first, with blank cells before the 1st.
-  const [year, monthNumber] = month.split("-").map(Number);
-  const dayCount = new Date(year, monthNumber, 0).getDate();
-  const lead = (new Date(year, monthNumber - 1, 1).getDay() + 6) % 7;
-  const today = new Date();
-  const isThisMonth = monthKey(today) === month;
 
   return (
     <section data-tour="dash-fees" className="flex flex-col gap-3">
@@ -115,8 +140,8 @@ export function FeesPanel({
           </h2>
           <p className="text-xs text-muted-foreground">
             {isTeacher
-              ? "Tick the students who have paid for the month — it shows on their dashboard straight away."
-              : "Your monthly fee record, kept by your teacher. Read-only here."}
+              ? "Months across the top, students down the side — tap a cell to tick that month as paid."
+              : "Months across the top, your name down the side — ticked by your teacher, read-only here."}
           </p>
         </div>
         <div className="flex items-center gap-1.5">
@@ -124,20 +149,20 @@ export function FeesPanel({
             type="button"
             variant="outline"
             size="icon-sm"
-            aria-label="Previous month"
-            onClick={() => setMonth((value) => shiftMonth(value, -1))}
+            aria-label="Previous year"
+            onClick={() => setYear((value) => value - 1)}
           >
             <ChevronLeft className="size-4" />
           </Button>
-          <span className="min-w-36 text-center text-sm font-medium tabular-nums">
-            {monthLabel(month)}
+          <span className="min-w-16 text-center text-sm font-medium tabular-nums">
+            {year}
           </span>
           <Button
             type="button"
             variant="outline"
             size="icon-sm"
-            aria-label="Next month"
-            onClick={() => setMonth((value) => shiftMonth(value, 1))}
+            aria-label="Next year"
+            onClick={() => setYear((value) => value + 1)}
           >
             <ChevronRight className="size-4" />
           </Button>
@@ -145,20 +170,29 @@ export function FeesPanel({
       </div>
 
       <Card className="gap-0 py-0">
-        <CardContent className="p-4">
+        <CardContent className="flex flex-col gap-3 p-4">
           {!vault.classCode ? (
             <p className="py-4 text-center text-xs text-muted-foreground">
               Open a class to track fees.
             </p>
           ) : isTeacher ? (
             /* ------------------------------------------------- the teacher */
-            <div className="flex flex-col gap-3">
-              <Badge
-                variant="outline"
-                className="w-fit border-gold/40 bg-gold/15 text-gold-foreground tabular-nums"
-              >
-                {paidCount} of {roster.length} paid
-              </Badge>
+            <>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge
+                  variant="outline"
+                  className="border-gold/40 bg-gold/15 text-gold-foreground tabular-nums"
+                >
+                  {year === now.getFullYear()
+                    ? `${paidThisMonth} of ${roster.length} paid in ${
+                        MONTHS[now.getMonth()]
+                      }`
+                    : `${roster.length} students in ${year}`}
+                </Badge>
+                <span className="text-[11px] text-muted-foreground">
+                  Tap a cell to tick it, tap again to undo.
+                </span>
+              </div>
               {!settled ? (
                 <p className="py-4 text-center text-xs text-muted-foreground">
                   Loading the class list…
@@ -169,117 +203,202 @@ export function FeesPanel({
                   soon as they create an account with your class code.
                 </p>
               ) : (
-                <div className="divide-y divide-border/70 overflow-hidden rounded-lg border border-border/70">
-                  {roster.map((name) => {
-                    const paid = paidNames.has(key(name));
-                    const busy = saving === name;
-                    return (
-                      <label
-                        key={name}
-                        className="flex cursor-pointer items-center gap-3 px-3 py-2.5 transition-colors hover:bg-muted/40"
-                      >
-                        <Checkbox
-                          checked={paid}
-                          disabled={busy}
-                          onCheckedChange={(value) =>
-                            void toggle(name, value === true)
-                          }
-                          aria-label={`${
-                            paid ? "Unmark" : "Mark"
-                          } ${name} as paid for ${monthLabel(month)}`}
-                        />
-                        <span className="min-w-0 flex-1 truncate text-sm">
-                          {labels.get(name) ?? name}
-                        </span>
-                        <span
-                          className={cn(
-                            "shrink-0 text-[11px] font-medium",
-                            paid ? "text-gold-foreground" : "text-muted-foreground",
-                          )}
+                <div className="-mx-1 overflow-x-auto">
+                  <table className="w-full min-w-[34rem] border-separate border-spacing-0 text-xs">
+                    <thead>
+                      <tr>
+                        <th
+                          scope="col"
+                          className="sticky left-0 z-10 bg-card px-2 py-2 text-left text-[10px] font-semibold tracking-[0.14em] text-muted-foreground uppercase"
                         >
-                          {paid ? "Paid" : "Not paid"}
-                        </span>
-                      </label>
-                    );
-                  })}
+                          Student
+                        </th>
+                        {MONTHS.map((label, index) => (
+                          <th
+                            key={label}
+                            scope="col"
+                            className={cn(
+                              "px-0.5 py-2 text-center text-[10px] font-semibold uppercase",
+                              columns[index] === thisMonth
+                                ? "text-gold-foreground"
+                                : "text-muted-foreground",
+                            )}
+                          >
+                            {label}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rows.map((name) => (
+                        <tr key={name}>
+                          <th
+                            scope="row"
+                            className="sticky left-0 z-10 max-w-32 truncate border-t border-border/60 bg-card px-2 py-1.5 text-left text-xs font-medium"
+                          >
+                            {labels.get(name) ?? name}
+                          </th>
+                          {columns.map((month) => {
+                            const paid = paidCells.has(cellKey(name, month));
+                            const busy = saving === cellKey(name, month);
+                            const monthName = `${MONTHS[Number(month.slice(5, 7)) - 1]} ${year}`;
+                            return (
+                              <td
+                                key={month}
+                                className="border-t border-border/60 px-0.5 py-1 text-center"
+                              >
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  aria-pressed={paid}
+                                  aria-label={`${
+                                    paid ? "Unmark" : "Mark"
+                                  } ${name} as paid for ${monthName}`}
+                                  title={`${name} · ${monthName}`}
+                                  onClick={() => void toggle(name, month, !paid)}
+                                  className={cn(
+                                    "mx-auto flex size-7 items-center justify-center rounded-md border transition-colors",
+                                    paid
+                                      ? "border-gold/50 bg-gold/20 text-gold-foreground"
+                                      : "border-border/60 text-muted-foreground/40 hover:border-gold/50 hover:bg-gold/10",
+                                    busy && "opacity-40",
+                                  )}
+                                >
+                                  {paid ? (
+                                    <Check className="size-3.5" />
+                                  ) : (
+                                    <span className="size-1 rounded-full bg-current" />
+                                  )}
+                                </button>
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                      <tr>
+                        <th
+                          scope="row"
+                          className="sticky left-0 z-10 bg-card px-2 py-1.5 text-left text-[10px] font-semibold tracking-[0.14em] text-muted-foreground uppercase"
+                        >
+                          Paid
+                        </th>
+                        {columns.map((month) => {
+                          const count = roster.filter((name) =>
+                            paidCells.has(cellKey(name, month)),
+                          ).length;
+                          return (
+                            <td
+                              key={month}
+                              className="px-0.5 py-1.5 text-center text-[11px] tabular-nums text-muted-foreground"
+                            >
+                              {count > 0 ? count : "·"}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    </tbody>
+                  </table>
                 </div>
               )}
-            </div>
+            </>
           ) : (
-            /* ------------------------------------------------ the student */
-            <div className="grid gap-4 sm:grid-cols-[1fr_220px]">
-              <div>
-                <div className="grid grid-cols-7 gap-1 text-center text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
-                  {WEEKDAYS.map((day, index) => (
-                    <span key={`${day}-${index}`}>{day}</span>
-                  ))}
-                </div>
-                <div className="mt-1 grid grid-cols-7 gap-1">
-                  {Array.from({ length: lead }).map((_, index) => (
-                    <span key={`lead-${index}`} />
-                  ))}
-                  {Array.from({ length: dayCount }).map((_, index) => {
-                    const day = index + 1;
-                    return (
-                      <span
-                        key={day}
-                        className={cn(
-                          "relative flex aspect-square items-center justify-center rounded-md border text-xs tabular-nums",
-                          myPaid
-                            ? "border-gold/40 bg-gold/15 font-medium text-gold-foreground"
-                            : "border-border/60 bg-muted/30 text-muted-foreground",
-                          isThisMonth &&
-                            day === today.getDate() &&
-                            "ring-1 ring-primary/60",
-                        )}
-                      >
-                        {day}
-                        {myPaid && (
-                          <Check className="absolute top-0.5 right-0.5 size-2.5" />
-                        )}
-                      </span>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div className="flex flex-col gap-2">
-                <div
+            /* ------------------------------------------------- the student */
+            <>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge
+                  variant="outline"
                   className={cn(
-                    "rounded-xl border px-3 py-3",
-                    myPaid
-                      ? "border-gold/40 bg-gold/15"
-                      : "border-border/70 bg-muted/40",
+                    "tabular-nums",
+                    paidCells.has(cellKey(myRow, thisMonth))
+                      ? "border-gold/40 bg-gold/15 text-gold-foreground"
+                      : "border-border/70 bg-muted/40 text-muted-foreground",
                   )}
                 >
-                  <p className="text-[10px] font-semibold tracking-[0.14em] text-muted-foreground uppercase">
-                    Your fees
-                  </p>
-                  <p
-                    className={cn(
-                      "mt-1 flex items-center gap-1.5 text-sm font-semibold",
-                      myPaid ? "text-gold-foreground" : "text-foreground",
-                    )}
-                  >
-                    {myPaid ? (
-                      <>
-                        <Check className="size-4" /> Paid
-                      </>
-                    ) : (
-                      "Not marked yet"
-                    )}
-                  </p>
-                  <p className="mt-0.5 text-[11px] text-muted-foreground">
-                    {monthLabel(month)}
-                  </p>
-                </div>
-                <p className="flex items-start gap-1.5 text-[11px] leading-snug text-muted-foreground">
-                  <Lock className="mt-0.5 size-3 shrink-0" />
-                  Only your teacher can change this — it updates here as soon as
-                  they tick it.
-                </p>
+                  {paidCells.has(cellKey(myRow, thisMonth))
+                    ? `Paid for ${MONTHS[now.getMonth()]} ${now.getFullYear()}`
+                    : `Not marked yet for ${MONTHS[now.getMonth()]} ${now.getFullYear()}`}
+                </Badge>
+                <span className="text-[11px] text-muted-foreground tabular-nums">
+                  {myMonthsPaid} of 12 months paid in {year}
+                </span>
               </div>
-            </div>
+              <div className="-mx-1 overflow-x-auto">
+                <table className="w-full min-w-[34rem] border-separate border-spacing-0 text-xs">
+                  <thead>
+                    <tr>
+                      <th
+                        scope="col"
+                        className="sticky left-0 z-10 bg-card px-2 py-2 text-left text-[10px] font-semibold tracking-[0.14em] text-muted-foreground uppercase"
+                      >
+                        You
+                      </th>
+                      {MONTHS.map((label, index) => (
+                        <th
+                          key={label}
+                          scope="col"
+                          className={cn(
+                            "px-0.5 py-2 text-center text-[10px] font-semibold uppercase",
+                            columns[index] === thisMonth
+                              ? "text-gold-foreground"
+                              : "text-muted-foreground",
+                          )}
+                        >
+                          {label}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <th
+                        scope="row"
+                        className="sticky left-0 z-10 max-w-32 truncate border-t border-border/60 bg-card px-2 py-1.5 text-left text-xs font-medium"
+                      >
+                        {labels.get(myRow) ?? myRow}
+                      </th>
+                      {columns.map((month) => {
+                        const paid = paidCells.has(cellKey(myRow, month));
+                        const monthName = `${MONTHS[
+                          Number(month.slice(5, 7)) - 1
+                        ]} ${year}`;
+                        return (
+                          <td
+                            key={month}
+                            className="border-t border-border/60 px-0.5 py-1 text-center"
+                          >
+                            <span
+                              title={`${monthName}: ${
+                                paid ? "paid" : "not marked"
+                              }`}
+                              aria-label={`${monthName}: ${
+                                paid ? "paid" : "not marked"
+                              }`}
+                              className={cn(
+                                "mx-auto flex size-7 items-center justify-center rounded-md border",
+                                paid
+                                  ? "border-gold/50 bg-gold/20 text-gold-foreground"
+                                  : "border-border/50 text-muted-foreground/30",
+                              )}
+                            >
+                              {paid ? (
+                                <Check className="size-3.5" />
+                              ) : (
+                                <span className="size-1 rounded-full bg-current" />
+                              )}
+                            </span>
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <p className="flex items-start gap-1.5 text-[11px] leading-snug text-muted-foreground">
+                <Lock className="mt-0.5 size-3 shrink-0" />
+                Only your teacher can change this — a tick appears here as soon
+                as they record that month.
+              </p>
+            </>
           )}
         </CardContent>
       </Card>
