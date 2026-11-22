@@ -4,6 +4,11 @@ One React SPA served from Freebuff Sites, and one Convex deployment that holds
 all state and every secret. Media bytes never touch Convex storage — they stay
 in Google Drive.
 
+<img src="diagrams/architecture.svg" alt="Architecture diagram: browser, Convex deployment and external services" />
+
+<details>
+<summary>Diagram source (Mermaid)</summary>
+
 ```mermaid
 flowchart LR
   classDef app stroke:#4a72c4,stroke-width:2px
@@ -57,6 +62,8 @@ flowchart LR
   style deploy fill:transparent,stroke:#4a72c4
   style external fill:transparent,stroke:#c9a227
 ```
+
+</details>
 
 Solid arrows are steady traffic; the dashed arrow is the sign-in and token
 refresh path, which only runs when the session starts or the access token

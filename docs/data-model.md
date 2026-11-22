@@ -12,6 +12,11 @@ its media, its practice log, its attendance sheet, a hand-added roster and one
 chat room of its own; accounts also hold their own Drive connection, push
 devices and admin grant.
 
+<img src="diagrams/conceptual-model.svg" alt="Conceptual data model: entities and the relationships between them" />
+
+<details>
+<summary>Diagram source (Mermaid)</summary>
+
 ```mermaid
 erDiagram
   ACCOUNT ||--o{ DANCE_CLASS : "owns"
@@ -33,6 +38,8 @@ erDiagram
   ACCOUNT ||--o| ADMIN_GRANT : "may hold"
 ```
 
+</details>
+
 | Entity | What it stands for |
 | --- | --- |
 | `ACCOUNT` | One person who signs in: a student, a teacher, or the admin. |
@@ -52,11 +59,25 @@ erDiagram
 ## Physical model
 
 Every table the deployment defines, with its fields and references, generated
-from the schema.
+from the schema. The models are split by domain so each one stays readable.
 
 <!-- BEGIN GENERATED DATA MODEL -->
 **27 tables** — 21 defined in `src/convex/schema.ts` (including
-`users`) plus 6 from Convex Auth's `authTables` (`authSessions`, `authAccounts`, `authRefreshTokens`, `authVerificationCodes`, `authVerifiers`, `authRateLimits`).
+`users`) plus 6 from Convex Auth's `authTables`.
+
+They are split into domain models so each diagram stays readable. Every
+table belongs to exactly one of them; a reference that crosses domains is
+named under its diagram instead of drawn across it. Each diagram also
+carries its Mermaid source, so the text is there when a renderer is not.
+
+### Accounts and auth
+
+Who can sign in. The `users` row is the account; everything else here is Convex Auth's own bookkeeping.
+
+<img src="diagrams/identity.svg" alt="Entity relationship diagram: accounts and auth" />
+
+<details>
+<summary>Diagram source (Mermaid)</summary>
 
 ```mermaid
 erDiagram
@@ -73,12 +94,6 @@ erDiagram
     bool fullNameSet "optional"
     bool tourPending "optional"
   }
-  authSessions {
-    id _id PK
-    number _creationTime
-    id userId FK "-> users"
-    number expirationTime
-  }
   authAccounts {
     id _id PK
     number _creationTime
@@ -88,6 +103,12 @@ erDiagram
     string secret "optional"
     string emailVerified "optional"
     string phoneVerified "optional"
+  }
+  authSessions {
+    id _id PK
+    number _creationTime
+    id userId FK "-> users"
+    number expirationTime
   }
   authRefreshTokens {
     id _id PK
@@ -121,12 +142,182 @@ erDiagram
     number lastAttemptTime
     number attemptsLeft
   }
+  users ||--o{ authAccounts : "userId"
+  users ||--o{ authSessions : "userId"
+  authSessions ||--o{ authRefreshTokens : "sessionId"
+  authRefreshTokens ||--o{ authRefreshTokens : "parentRefreshTokenId"
+  authAccounts ||--o{ authVerificationCodes : "accountId"
+  authSessions ||--o{ authVerifiers : "sessionId"
+```
+
+</details>
+
+### Admin and settings
+
+The admin's own records: passwords captured at sign-up for the reset screen, the 90-day unlocks, and the deployment-wide feature switches. References outside this model: `users`.
+
+<img src="diagrams/admin.svg" alt="Entity relationship diagram: admin and settings" />
+
+<details>
+<summary>Diagram source (Mermaid)</summary>
+
+```mermaid
+erDiagram
   savedPasswords {
     id _id PK
     number _creationTime
     string username
     string password
     number updatedAt
+  }
+  adminUnlocks {
+    id _id PK
+    number _creationTime
+    id userId FK "-> users"
+    number grantedAt
+    number expiresAt
+  }
+  settings {
+    id _id PK
+    number _creationTime
+    string key
+    bool enabled
+    number updatedAt
+  }
+```
+
+</details>
+
+### Classes and people
+
+A class is created by a teacher and joined by students with its six-character code; `classStudents` holds names a teacher added by hand. References outside this model: `users`.
+
+<img src="diagrams/classes.svg" alt="Entity relationship diagram: classes and people" />
+
+<details>
+<summary>Diagram source (Mermaid)</summary>
+
+```mermaid
+erDiagram
+  classes {
+    id _id PK
+    number _creationTime
+    string code
+    string name
+    id ownerId FK "-> users"
+    string ownerName
+    number createdAt
+  }
+  classMembers {
+    id _id PK
+    number _creationTime
+    id userId FK "-> users"
+    string code
+    string className
+    number joinedAt
+  }
+  classStudents {
+    id _id PK
+    number _creationTime
+    string code
+    string name
+    string addedBy
+    number addedAt
+  }
+```
+
+</details>
+
+### Attendance and practice
+
+The two per-class records students and teachers both read: marks per class day, and practice sessions. References outside this model: `users`.
+
+<img src="diagrams/learning.svg" alt="Entity relationship diagram: attendance and practice" />
+
+<details>
+<summary>Diagram source (Mermaid)</summary>
+
+```mermaid
+erDiagram
+  attendanceMarks {
+    id _id PK
+    number _creationTime
+    string code
+    string date
+    string name
+    enum status "present, late, absent, away"
+    string markedBy
+    number updatedAt
+  }
+  practiceEntries {
+    id _id PK
+    number _creationTime
+    string code
+    id authorId FK "-> users"
+    string authorName
+    string date
+    number minutes
+    string item
+    number createdAt
+    string clientId "optional"
+  }
+```
+
+</details>
+
+### Media and Google Drive
+
+Metadata for every upload, the short-lived playback grants, and the Drive connections the bytes are actually stored in. References outside this model: `users`.
+
+<img src="diagrams/media.svg" alt="Entity relationship diagram: media and google drive" />
+
+<details>
+<summary>Diagram source (Mermaid)</summary>
+
+```mermaid
+erDiagram
+  vaultMedia {
+    id _id PK
+    number _creationTime
+    string code
+    enum kind "audio, video"
+    string title
+    string mimeType
+    string driveFileId
+    enum owner "vault, uploader; optional"
+    id uploaderId FK "-> users"
+    string uploaderName
+    string date
+    number createdAt
+  }
+  mediaGrants {
+    id _id PK
+    number _creationTime
+    string token
+    string fileId
+    id ownerUserId FK "-> users; optional"
+    number expiresAt
+    number createdAt
+  }
+  driveFiles {
+    id _id PK
+    number _creationTime
+    id userId FK "-> users"
+    string fileId
+    string name
+    string mimeType
+    number size "optional"
+    number createdAt
+  }
+  driveStates {
+    id _id PK
+    number _creationTime
+    string nonce
+    id userId FK "-> users"
+    string returnTo
+    string origin "optional"
+    string mode "optional"
+    number createdAt
   }
   driveTokens {
     id _id PK
@@ -151,103 +342,21 @@ erDiagram
     id connectedBy FK "-> users; optional"
     number updatedAt
   }
-  adminUnlocks {
-    id _id PK
-    number _creationTime
-    id userId FK "-> users"
-    number grantedAt
-    number expiresAt
-  }
-  mediaGrants {
-    id _id PK
-    number _creationTime
-    string token
-    string fileId
-    id ownerUserId FK "-> users; optional"
-    number expiresAt
-    number createdAt
-  }
-  driveStates {
-    id _id PK
-    number _creationTime
-    string nonce
-    id userId FK "-> users"
-    string returnTo
-    string origin "optional"
-    string mode "optional"
-    number createdAt
-  }
-  driveFiles {
-    id _id PK
-    number _creationTime
-    id userId FK "-> users"
-    string fileId
-    string name
-    string mimeType
-    number size "optional"
-    number createdAt
-  }
-  classes {
-    id _id PK
-    number _creationTime
-    string code
-    string name
-    id ownerId FK "-> users"
-    string ownerName
-    number createdAt
-  }
-  attendanceMarks {
-    id _id PK
-    number _creationTime
-    string code
-    string date
-    string name
-    enum status "present, late, absent, away"
-    string markedBy
-    number updatedAt
-  }
-  practiceEntries {
-    id _id PK
-    number _creationTime
-    string code
-    id authorId FK "-> users"
-    string authorName
-    string date
-    number minutes
-    string item
-    number createdAt
-    string clientId "optional"
-  }
-  vaultMedia {
-    id _id PK
-    number _creationTime
-    string code
-    enum kind "audio, video"
-    string title
-    string mimeType
-    string driveFileId
-    enum owner "vault, uploader; optional"
-    id uploaderId FK "-> users"
-    string uploaderName
-    string date
-    number createdAt
-  }
-  classStudents {
-    id _id PK
-    number _creationTime
-    string code
-    string name
-    string addedBy
-    number addedAt
-  }
-  classMembers {
-    id _id PK
-    number _creationTime
-    id userId FK "-> users"
-    string code
-    string className
-    number joinedAt
-  }
+```
+
+</details>
+
+### Chat, calls and notifications
+
+Rooms, who sits in them, the messages, read markers, live calls, and the browsers that receive push. References outside this model: `users`.
+
+<img src="diagrams/chat.svg" alt="Entity relationship diagram: chat, calls and notifications" />
+
+<details>
+<summary>Diagram source (Mermaid)</summary>
+
+```mermaid
+erDiagram
   chats {
     id _id PK
     number _creationTime
@@ -316,40 +425,13 @@ erDiagram
     string userAgent "optional"
     number createdAt
   }
-  settings {
-    id _id PK
-    number _creationTime
-    string key
-    bool enabled
-    number updatedAt
-  }
-  users ||--o{ authSessions : "userId"
-  users ||--o{ authAccounts : "userId"
-  authSessions ||--o{ authRefreshTokens : "sessionId"
-  authRefreshTokens ||--o{ authRefreshTokens : "parentRefreshTokenId"
-  authAccounts ||--o{ authVerificationCodes : "accountId"
-  authSessions ||--o{ authVerifiers : "sessionId"
-  users ||--o{ driveTokens : "userId"
-  users ||--o{ vaultDriveTokens : "connectedBy"
-  users ||--o{ adminUnlocks : "userId"
-  users ||--o{ mediaGrants : "ownerUserId"
-  users ||--o{ driveStates : "userId"
-  users ||--o{ driveFiles : "userId"
-  users ||--o{ classes : "ownerId"
-  users ||--o{ practiceEntries : "authorId"
-  users ||--o{ vaultMedia : "uploaderId"
-  users ||--o{ classMembers : "userId"
-  users ||--o{ chats : "createdBy"
   chats ||--o{ chatMembers : "chatId"
-  users ||--o{ chatMembers : "userId"
   chats ||--o{ chatMessages : "chatId"
-  users ||--o{ chatMessages : "authorId"
   chats ||--o{ chatReads : "chatId"
-  users ||--o{ chatReads : "userId"
   chats ||--o{ calls : "chatId"
-  users ||--o{ calls : "startedBy"
-  users ||--o{ pushSubscriptions : "userId"
 ```
+
+</details>
 
 ### Indexes
 

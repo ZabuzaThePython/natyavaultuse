@@ -17,6 +17,19 @@ All relevant files live in the 'src' directory.
 
 Use bun for the package manager.
 
+## Architecture and data model
+
+- [docs/architecture.md](docs/architecture.md) — hosting, the browser, the Convex deployment and the external services it talks to.
+- [docs/data-model.md](docs/data-model.md) — the conceptual entities first, then one ER diagram per domain, generated from `src/convex/schema.ts`.
+
+<img src="docs/diagrams/architecture.svg" alt="Architecture: browser, Convex deployment and external services" />
+
+<img src="docs/diagrams/conceptual-model.svg" alt="Conceptual data model: entities and their relationships" />
+
+The physical diagrams are split by domain (accounts, admin, classes, learning, media, chat) because 27 tables do not fit in one readable graph; each diagram names the tables it references from other domains instead of drawing them. The images in `docs/diagrams/` are exported from `docs/diagrams.html`.
+
+Schema changes reach the docs with `npm run docs:data-model`; `npm run docs:data-model:check` exits 1 when the docs or an exported SVG is stale.
+
 ## Setup
 
 This project is set up already and running on a cloud environment, as well as a convex development in the sandbox.
