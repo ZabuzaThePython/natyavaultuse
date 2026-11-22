@@ -21,6 +21,87 @@
 
 <body>
   <div id="root"></div>
+  <script>
+    /* Recovers a tab that is running an older build than the one being served.
+       Every build gives its chunks new file names, so a stale index.html asks
+       for files the deploy replaced; the host answers those with this page
+       instead of JavaScript, and the app's own error handling never runs
+       because React never starts. This inline copy does run, so it shows a
+       quiet updating state and takes the current build once. */
+    (function () {
+      var KEY = "natyavault.boot-guard.v1";
+      var RETRY_AFTER_MS = 60000;
+      var failed = false;
+
+      function box(text, button) {
+        var root = document.getElementById("root");
+        if (!root) return;
+        root.innerHTML = "";
+        var el = document.createElement("div");
+        el.style.cssText =
+          "min-height:100vh;display:flex;flex-direction:column;gap:12px;" +
+          "align-items:center;justify-content:center;padding:24px;" +
+          "font:14px/1.5 system-ui,-apple-system,sans-serif;color:#71717a;text-align:center";
+        var p = document.createElement("p");
+        p.textContent = text;
+        el.appendChild(p);
+        if (button) {
+          var b = document.createElement("button");
+          b.type = "button";
+          b.textContent = button;
+          b.style.cssText =
+            "cursor:pointer;border:0;border-radius:6px;padding:6px 14px;" +
+            "font:inherit;background:#991b1b;color:#fff";
+          b.onclick = function () {
+            failed = false;
+            try { sessionStorage.removeItem(KEY); } catch (e) {}
+            window.location.reload();
+          };
+          el.appendChild(b);
+        }
+        root.appendChild(el);
+      }
+
+      function recover() {
+        if (failed) return;
+        failed = true;
+        var root = document.getElementById("root");
+        // The app may have started after all; never replace a working page.
+        if (root && root.childElementCount > 0) return;
+
+        var now = Date.now();
+        var last = 0;
+        try { last = Number(sessionStorage.getItem(KEY) || 0) || 0; } catch (e) {}
+
+        if (now - last > RETRY_AFTER_MS) {
+          try { sessionStorage.setItem(KEY, String(now)); } catch (e) {}
+          box("Updating NatyaVault…");
+          setTimeout(function () { window.location.reload(); }, 400);
+          return;
+        }
+
+        // Reloading did not bring the app back, so the build itself is broken:
+        // offer a retry rather than refreshing in a loop.
+        box("NatyaVault could not load. Check your connection, then try again.", "Reload");
+      }
+
+      // A module script that cannot be fetched reports the failure on the tag.
+      window.addEventListener(
+        "error",
+        function (event) {
+          var target = event.target;
+          if (target && target.tagName === "SCRIPT") recover();
+        },
+        true,
+      );
+
+      // A chunk can also fail late, or silently, leaving #root empty forever.
+      setTimeout(function () {
+        var root = document.getElementById("root");
+        if (root && root.childElementCount === 0) recover();
+      }, 15000);
+    })();
+  </script>
   <script type="module" src="/src/main.tsx"></script>
 </body>
 

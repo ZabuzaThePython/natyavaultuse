@@ -154,7 +154,14 @@ export function useViewerIsStaff(): ViewerRole {
   // which had no cache, stayed gone until the browser was signed in again.
   // Changing the argument re-subscribes. A handful of tries is enough.
   const [retry, setRetry] = useState(0);
-  const data = useQuery(api.classes.viewerRole, { retry });
+  // Send no argument until a retry is actually wanted. The argument was added
+  // with this cache-buster, so a frontend that shipped before its backend (or
+  // a tab still talking to the previous deployment) would otherwise have every
+  // viewerRole call rejected as an unknown field and lose the whole shell.
+  const data = useQuery(
+    api.classes.viewerRole,
+    retry > 0 ? { retry } : {},
+  );
   useEffect(() => {
     if (data !== undefined || retry >= 5) return;
     const timer = setTimeout(() => setRetry((tries) => tries + 1), 2000);
