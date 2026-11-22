@@ -234,14 +234,12 @@ export default function Classes() {
         <p className="text-sm font-medium text-muted-foreground">
           {canCreate
             ? canSeeAll
-              ? studioName
-                ? `Every class in ${studioName}`
-                : "Every class in your studio"
+              ? "Every class in your studio"
               : "Classes you run"
             : "Your class"}
         </p>
-        <h1 className="mt-1 text-2xl font-bold tracking-tight sm:text-3xl">
-          Classes
+        <h1 className="mt-1 truncate text-2xl font-bold tracking-tight sm:text-3xl">
+          {studioName ?? "Classes"}
         </h1>
         <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
           Every class is its own vault — separate folders, media, practice

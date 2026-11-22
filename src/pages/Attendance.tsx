@@ -445,10 +445,10 @@ export default function Attendance() {
       <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="text-sm font-medium text-muted-foreground">
-            {studioName ?? (isTeacher ? "Class roll" : "Class attendance")}
+            {isTeacher ? "Class roll" : "Class attendance"}
           </p>
-          <h1 className="mt-1 text-2xl font-bold tracking-tight sm:text-3xl">
-            Attendance
+          <h1 className="mt-1 truncate text-2xl font-bold tracking-tight sm:text-3xl">
+            {studioName ?? "Attendance"}
           </h1>
           <p className="mt-1 max-w-xl text-sm text-muted-foreground">
             {isTeacher

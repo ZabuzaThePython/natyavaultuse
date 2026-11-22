@@ -184,10 +184,10 @@ export default function Dashboard() {
       <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="text-sm font-medium text-muted-foreground">
-            {studioName ?? "Personal vault"}
+            {studioName ? `Namaste, ${firstName}` : "Personal vault"}
           </p>
           <h1 className="mt-1 text-2xl font-bold tracking-tight sm:text-3xl">
-            Namaste, {firstName}
+            {studioName ?? `Namaste, ${firstName}`}
           </h1>
         </div>
         <div className="flex flex-wrap gap-2" data-tour="dash-actions">

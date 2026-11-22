@@ -169,10 +169,10 @@ export default function PracticeLog() {
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
       <header>
         <p className="text-sm font-medium text-muted-foreground">
-          {studioName ?? "Your studio"}
+          {studioName ? "Practice Log" : "Your studio"}
         </p>
         <h1 className="mt-1 text-2xl font-bold tracking-tight sm:text-3xl">
-          Practice Log
+          {studioName ?? "Practice Log"}
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
           {isTeacher

@@ -1682,10 +1682,10 @@ export default function Messages() {
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-sm font-medium text-muted-foreground">
-            {studioName ?? "Your studio"}
+            {studioName ? "Messages" : "Your studio"}
           </p>
           <h1 className="mt-1 text-2xl font-bold tracking-tight sm:text-3xl">
-            Messages
+            {studioName ?? "Messages"}
           </h1>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
             Your class room and any conversations you're part of.
