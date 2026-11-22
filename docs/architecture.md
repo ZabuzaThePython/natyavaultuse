@@ -6,44 +6,64 @@ in Google Drive.
 
 ```mermaid
 flowchart LR
-  subgraph hosting["Hosting · Freebuff Sites"]
+  classDef app stroke:#4a72c4,stroke-width:2px
+  classDef auth stroke:#8b5cf6,stroke-width:2px
+  classDef ext stroke:#c9a227,stroke-width:2px
+  classDef neutral stroke:#8a8a8a,stroke-width:1px
+
+  subgraph hosting["Hosting / Freebuff Sites"]
     sites["Cloudflare Worker<br/>static SPA build"]
   end
 
   subgraph browser["Browser / PWA"]
     client["React 19 SPA<br/>Convex React client"]
     sw["Service worker<br/>web push"]
-    store["localStorage<br/>JWT · role cache"]
+    store["localStorage<br/>JWT / role cache"]
   end
 
-  subgraph deploy["Convex deployment · prod"]
-    fns["Queries and mutations<br/>classes · chats · vault"]
-    http["HTTP routes<br/>/drive/callback · proxies"]
-    db[("Convex DB<br/>27 tables")]
+  subgraph deploy["Convex deployment / prod"]
+    fns["Queries and mutations<br/>classes, chats, vault"]
+    http["HTTP routes<br/>/drive/callback and proxies"]
+    db[("Convex DB")]
     files[("File storage<br/>chat attachments")]
-    auth["Convex Auth<br/>password · JWT · JWKS"]
-    actions["Actions<br/>Drive · LiveKit · Giphy · push"]
+    auth["Convex Auth<br/>password, JWT, JWKS"]
+    actions["Actions<br/>Drive, LiveKit, Giphy, push"]
   end
 
   subgraph external["External services"]
-    drive["Google Drive<br/>personal + class archive"]
+    drive["Google Drive<br/>personal and class archive"]
     livekit["LiveKit Cloud<br/>call audio / video"]
-    push["Web Push · VAPID<br/>service worker receives"]
+    push["Web Push / VAPID<br/>service worker receives"]
   end
 
   sites -->|serves the build| client
-  client -->|WS · JWT| fns
-  client -.->|sign in · refresh| auth
-  fns -->|reads · writes| db
+  client -->|WS / JWT| fns
+  client -.->|sign in / refresh| auth
+  fns -->|reads / writes| db
   http -->|attachments| files
-  http -->|OAuth · upload · stream| drive
+  http -->|OAuth, upload, stream| drive
   actions -->|room token| livekit
   actions -->|notify| push
+
+  class sites,sw,store neutral
+  class client,fns,http,db,files,actions app
+  class auth auth
+  class drive,livekit,push ext
 ```
 
 Solid arrows are steady traffic; the dashed arrow is the sign-in and token
 refresh path, which only runs when the session starts or the access token
-expires.
+expires. Blue is the app and its database, purple is auth, yellow is an outside
+service, grey is a browser or edge runtime.
+
+<!-- BEGIN GENERATED COUNTS -->
+The deployment has **27 tables** — 21 defined in
+`src/convex/schema.ts` (including `users`) and 6 more that
+Convex Auth adds.
+
+Field-level detail, references and indexes live in [data-model.md](data-model.md).
+This count is generated from the schema, not typed by hand.
+<!-- END GENERATED COUNTS -->
 
 ## What each box is
 
@@ -55,7 +75,7 @@ expires.
 | localStorage | Namespaced per deployment: the auth JWT and refresh token, the remembered account, the per-account staff role cache, and the admin unlock. |
 | Queries and mutations | `classes`, `chats`, `vault`, `attendance`, `practice`, `admin` — every read and write of app data. |
 | HTTP routes | `auth.addHttpRoutes` (OAuth discovery and JWKS), `/drive/callback`, `/drive/upload-proxy`, `/drive/media-proxy`. |
-| Convex Auth | The password provider (username + password), self-issued RS256 JWTs, and rotating refresh tokens. |
+| Convex Auth | The password provider (username and password), self-issued RS256 JWTs, and rotating refresh tokens. |
 | Actions | Drive token exchange and refresh, LiveKit room tokens, Giphy search, password resets, and push sends. |
 | Google Drive | Where the actual audio and video bytes live: one token set per account, plus a single class-archive token (`vaultDriveTokens`). |
 
@@ -82,10 +102,7 @@ expires.
 
 ## Tables
 
-`src/convex/schema.ts` defines 21 tables, one of which is `users` (overriding
-the auth library's own). `authTables` contributes six more —
-`authSessions`, `authAccounts`, `authRefreshTokens`, `authVerificationCodes`,
-`authVerifiers`, `authRateLimits` — for **27 tables** in total.
+Field-level detail, references and indexes: [data-model.md](data-model.md).
 
 ## Secrets
 

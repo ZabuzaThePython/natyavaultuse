@@ -1,0 +1,205 @@
+#!/usr/bin/env node
+/**
+ * Regenerates the physical data model from Convex's own schema definition.
+ *
+ * `src/convex/schema.ts` is the single source of truth. This script evaluates
+ * it — bundled with esbuild so the TypeScript and the auth library's tables
+ * both load — then writes the ER diagram, the table counts and the index list
+ * into docs/data-model.md and docs/architecture.md, between marker comments.
+ * Because the numbers come from the schema itself, editing a table field or
+ * adding a table and re-running this keeps the docs true.
+ *
+ *   npm run docs:data-model          rewrite the generated sections
+ *   npm run docs:data-model:check    exit 1 when they are stale (CI)
+ */
+import { build } from "esbuild";
+import { authTables } from "@convex-dev/auth/server";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+const CACHE_DIR = join(ROOT, ".cache");
+const SCHEMA_ENTRY = join(ROOT, "src/convex/schema.ts");
+const DATA_MODEL_DOC = join(ROOT, "docs/data-model.md");
+const ARCHITECTURE_DOC = join(ROOT, "docs/architecture.md");
+
+const DATA_BEGIN = "<!-- BEGIN GENERATED DATA MODEL -->";
+const DATA_END = "<!-- END GENERATED DATA MODEL -->";
+const COUNTS_BEGIN = "<!-- BEGIN GENERATED COUNTS -->";
+const COUNTS_END = "<!-- END GENERATED COUNTS -->";
+
+const checkOnly = process.argv.includes("--check");
+
+/** Text that is safe inside a Mermaid quoted comment. */
+function quote(text) {
+  return `"${String(text).replace(/"/g, "'").replace(/\s+/g, " ").trim()}"`;
+}
+
+/** Map a Convex validator to a Mermaid ER attribute type plus a note. */
+function fieldType(validator) {
+  const kind = validator?.kind ?? "any";
+  switch (kind) {
+    case "string":
+      return { type: "string", note: null };
+    case "number":
+    case "float64":
+      return { type: "number", note: null };
+    case "int64":
+      return { type: "int64", note: null };
+    case "boolean":
+      return { type: "bool", note: null };
+    case "bytes":
+      return { type: "bytes", note: null };
+    case "id":
+      return { type: "id", note: `-> ${validator.tableName}` };
+    case "literal":
+      return { type: "enum", note: String(validator.value) };
+    case "array": {
+      const inner = fieldType(validator.element);
+      return { type: "array", note: inner.note ? `${inner.type} ${inner.note}` : inner.type };
+    }
+    case "object":
+      return { type: "object", note: Object.keys(validator.fields ?? {}).join(", ") };
+    case "record":
+      return { type: "map", note: null };
+    case "union": {
+      const members = validator.members ?? [];
+      const literals = members.every((member) => member.kind === "literal");
+      const notes = members.map((member) =>
+        member.kind === "literal" ? String(member.value) : fieldType(member).type,
+      );
+      return { type: literals ? "enum" : "union", note: notes.join(", ") };
+    }
+    default:
+      return { type: "any", note: kind === "any" ? null : kind };
+  }
+}
+
+/** One `erDiagram` covering every table and every reference. */
+function renderDiagram(tables) {
+  const lines = ["erDiagram"];
+  const relations = [];
+  for (const [name, definition] of Object.entries(tables)) {
+    const fields = definition.validator?.fields ?? {};
+    lines.push(`  ${name} {`);
+    lines.push("    id _id PK");
+    lines.push("    number _creationTime");
+    for (const [field, validator] of Object.entries(fields)) {
+      const { type, note } = fieldType(validator);
+      const foreign = validator?.kind === "id";
+      const bits = [];
+      if (note) bits.push(note);
+      if (validator?.isOptional === "optional") bits.push("optional");
+      const key = foreign ? " FK" : "";
+      const suffix = bits.length ? ` ${quote(bits.join("; "))}` : "";
+      lines.push(`    ${type} ${field}${key}${suffix}`);
+      if (foreign) {
+        relations.push(`  ${validator.tableName} ||--o{ ${name} : ${quote(field)}`);
+      }
+    }
+    lines.push("  }");
+  }
+  return [...lines, ...relations].join("\n");
+}
+
+/** Every declared index, as a Markdown table. */
+function renderIndexes(tables) {
+  const rows = [];
+  for (const [name, definition] of Object.entries(tables)) {
+    const indexes = (definition.indexes ?? []).map(
+      (index) => `\`${index.indexDescriptor}(${index.fields.join(", ")})\``,
+    );
+    if (indexes.length > 0) rows.push(`| \`${name}\` | ${indexes.join(", ")} |`);
+  }
+  return ["| table | indexes |", "| --- | --- |", ...rows].join("\n");
+}
+
+/** How many tables there are, and where each group comes from. */
+function countTables(tables) {
+  const total = Object.keys(tables).length;
+  const authOnly = Object.keys(authTables).filter(
+    (name) => name !== "users" && tables[name],
+  );
+  return { total, primary: total - authOnly.length, authOnly };
+}
+
+function renderDataModel(tables) {
+  const { total, primary, authOnly } = countTables(tables);
+  return [
+    `**${total} tables** — ${primary} defined in \`src/convex/schema.ts\` (including`,
+    `\`users\`) plus ${authOnly.length} from Convex Auth's \`authTables\` (${authOnly
+      .map((name) => `\`${name}\``)
+      .join(", ")}).`,
+    "",
+    "```mermaid",
+    renderDiagram(tables),
+    "```",
+    "",
+    "### Indexes",
+    "",
+    renderIndexes(tables),
+  ].join("\n");
+}
+
+function renderCounts(tables) {
+  const { total, primary, authOnly } = countTables(tables);
+  return [
+    `The deployment has **${total} tables** — ${primary} defined in`,
+    `\`src/convex/schema.ts\` (including \`users\`) and ${authOnly.length} more that`,
+    "Convex Auth adds.",
+    "",
+    "Field-level detail, references and indexes live in [data-model.md](data-model.md).",
+    "This count is generated from the schema, not typed by hand.",
+  ].join("\n");
+}
+
+/** Replace the text between two markers, or explain which doc is missing them. */
+async function writeSection(path, begin, end, body) {
+  const current = await readFile(path, "utf8");
+  const from = current.indexOf(begin);
+  const to = current.indexOf(end);
+  if (from === -1 || to === -1 || to < from) {
+    throw new Error(`${path} is missing the ${begin} / ${end} markers`);
+  }
+  const next = `${current.slice(0, from + begin.length)}\n${body}\n${current.slice(to)}`;
+  if (next === current) return { path, changed: false, stale: false };
+  if (checkOnly) return { path, changed: false, stale: true };
+  await writeFile(path, next, "utf8");
+  return { path, changed: true, stale: false };
+}
+
+await mkdir(CACHE_DIR, { recursive: true });
+const bundled = join(CACHE_DIR, "schema.mjs");
+await build({
+  entryPoints: [SCHEMA_ENTRY],
+  bundle: true,
+  platform: "node",
+  format: "esm",
+  outfile: bundled,
+  packages: "external",
+  logLevel: "silent",
+});
+
+const schema = (await import(`${bundled}?t=${Date.now()}`)).default;
+const tables = schema.tables ?? {};
+if (Object.keys(tables).length === 0) {
+  throw new Error("The schema exported no tables");
+}
+
+const results = [
+  await writeSection(DATA_MODEL_DOC, DATA_BEGIN, DATA_END, renderDataModel(tables)),
+  await writeSection(ARCHITECTURE_DOC, COUNTS_BEGIN, COUNTS_END, renderCounts(tables)),
+];
+
+const { total } = countTables(tables);
+for (const result of results) {
+  const state = result.changed ? "updated" : result.stale ? "STALE" : "unchanged";
+  console.log(`${state.padEnd(9)} ${result.path.replace(`${ROOT}/`, "")}`);
+}
+console.log(`${total} tables read from src/convex/schema.ts`);
+
+if (results.some((result) => result.stale)) {
+  console.error("\nDocs are out of date — run: npm run docs:data-model");
+  process.exit(1);
+}

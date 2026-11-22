@@ -7,6 +7,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
+    "docs:data-model": "node scripts/generate-data-model.mjs",
+    "docs:data-model:check": "node scripts/generate-data-model.mjs --check",
     "format": "prettier --write .",
     "preview": "vite preview"
   },
@@ -80,6 +82,7 @@
     "@types/react-dom": "^19.2.3",
     "@types/web-push": "^3.6.4",
     "@vitejs/plugin-react": "^5.1.1",
+    "esbuild": "^0.27.0",
     "eslint": "^9.39.1",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-react-hooks": "^7.0.1",
