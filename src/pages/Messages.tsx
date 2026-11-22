@@ -47,6 +47,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useAuth } from "@/hooks/use-auth";
+import {
+  shortChatTitle,
+  shortName,
+  shortNames,
+} from "@/lib/display-name";
 import { useViewerIsStaff } from "@/lib/classes";
 import { timeAgo, useVault } from "@/lib/vault";
 import { useSearchParams } from "react-router";
@@ -69,6 +74,7 @@ import {
   Search,
   Send,
   Trash2,
+  UserPlus,
   Users,
   Video,
   X,
@@ -219,12 +225,15 @@ function GifView({
 
 function MessageRow({
   message,
+  members,
   canPin,
   canDelete,
   onPin,
   onDelete,
 }: {
   message: ChatMessageView;
+  /** Everyone in the chat, so a shared first name gains its last initial. */
+  members: string[];
   canPin: boolean;
   canDelete: boolean;
   onPin: (message: ChatMessageView) => void;
@@ -250,7 +259,7 @@ function MessageRow({
           {initials(message.authorName)}
         </span>
         <span className="font-medium text-foreground">
-          {message.isMine ? "You" : message.authorName}
+          {message.isMine ? "You" : shortName(message.authorName, members)}
         </span>
         {message.authorIsStaff && (
           <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] tracking-wide uppercase">
@@ -265,7 +274,7 @@ function MessageRow({
         <div className="rounded-2xl border border-dashed border-border/70 bg-muted/50 px-3.5 py-2.5 text-sm text-muted-foreground italic">
           This message was deleted
           {message.deletedByName
-            ? ` by ${message.deletedByName}`
+            ? ` by ${shortName(message.deletedByName, members)}`
             : message.deletedBy === "author"
               ? " by its author"
               : " by a teacher"}
@@ -326,6 +335,86 @@ function MessageRow({
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * The searchable, class-grouped list of people with a checkbox each. Shared by
+ * the "new chat" and "add people" pickers.
+ */
+function PeoplePicker({
+  groups,
+  selected,
+  toggle,
+  search,
+  setSearch,
+  emptyText,
+  idPrefix,
+}: {
+  groups: {
+    label: string;
+    people: { id: Id<"users">; name: string; role: string }[];
+  }[];
+  selected: Id<"users">[];
+  toggle: (id: Id<"users">) => void;
+  search: string;
+  setSearch: (value: string) => void;
+  emptyText: string;
+  /** Keeps the checkbox ids apart when two pickers share a page. */
+  idPrefix: string;
+}) {
+  // Shortened from the people on screen, so two of the same first name pick up
+  // their last initial here too (see lib/display-name).
+  const labels = shortNames(
+    groups.flatMap((group) => group.people.map((person) => person.name)),
+  );
+
+  return (
+    <>
+      <Input
+        value={search}
+        onChange={(event) => setSearch(event.target.value)}
+        placeholder="Search people…"
+        aria-label="Search people"
+      />
+
+      <div className="max-h-72 overflow-y-auto rounded-lg border border-border/70">
+        {groups.length === 0 ? (
+          <p className="px-3 py-6 text-center text-sm text-muted-foreground">
+            {emptyText}
+          </p>
+        ) : (
+          groups.map((groupBlock) => (
+            <div key={groupBlock.label}>
+              <p className="sticky top-0 z-10 bg-muted/80 px-3 py-1.5 text-[11px] font-medium tracking-wide text-muted-foreground uppercase backdrop-blur">
+                {groupBlock.label}
+              </p>
+              {groupBlock.people.map((person) => (
+                <label
+                  key={person.id}
+                  htmlFor={`${idPrefix}-${person.id}`}
+                  className="flex cursor-pointer items-center gap-3 border-t border-border/50 px-3 py-2.5 text-sm hover:bg-accent/50"
+                >
+                  <Checkbox
+                    id={`${idPrefix}-${person.id}`}
+                    checked={selected.includes(person.id)}
+                    onCheckedChange={() => toggle(person.id)}
+                  />
+                  <span className="min-w-0 flex-1 truncate">
+                    {labels.get(person.name) ?? person.name}
+                  </span>
+                  {person.role === "teacher" && (
+                    <span className="text-[10px] tracking-wide text-muted-foreground uppercase">
+                      teacher
+                    </span>
+                  )}
+                </label>
+              ))}
+            </div>
+          ))
+        )}
+      </div>
+    </>
   );
 }
 
@@ -421,49 +510,15 @@ function NewChatDialog({
           </p>
         ) : (
           <>
-            <Input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search people…"
-              aria-label="Search people"
+            <PeoplePicker
+              groups={groups}
+              selected={selected}
+              toggle={toggle}
+              search={search}
+              setSearch={setSearch}
+              emptyText="No one matches that search."
+              idPrefix="pick"
             />
-
-            <div className="max-h-72 overflow-y-auto rounded-lg border border-border/70">
-              {groups.length === 0 ? (
-                <p className="px-3 py-6 text-center text-sm text-muted-foreground">
-                  No one matches that search.
-                </p>
-              ) : (
-                groups.map((groupBlock) => (
-                  <div key={groupBlock.label}>
-                    <p className="sticky top-0 z-10 bg-muted/80 px-3 py-1.5 text-[11px] font-medium tracking-wide text-muted-foreground uppercase backdrop-blur">
-                      {groupBlock.label}
-                    </p>
-                    {groupBlock.people.map((person) => (
-                      <label
-                        key={person.id}
-                        htmlFor={`pick-${person.id}`}
-                        className="flex cursor-pointer items-center gap-3 border-t border-border/50 px-3 py-2.5 text-sm hover:bg-accent/50"
-                      >
-                        <Checkbox
-                          id={`pick-${person.id}`}
-                          checked={selected.includes(person.id)}
-                          onCheckedChange={() => toggle(person.id)}
-                        />
-                        <span className="min-w-0 flex-1 truncate">
-                          {person.name}
-                        </span>
-                        {person.role === "teacher" && (
-                          <span className="text-[10px] tracking-wide text-muted-foreground uppercase">
-                            teacher
-                          </span>
-                        )}
-                      </label>
-                    ))}
-                  </div>
-                ))
-              )}
-            </div>
 
             {group && (
               <Input
@@ -620,8 +675,11 @@ function NewCallDialog({
                     className="flex items-center gap-1 rounded-full bg-primary/10 px-2 py-1 text-[11px] text-primary transition-colors hover:bg-primary/20"
                     title="Remove from the call"
                   >
-                    {everyone.find((person) => person.id === id)?.name ??
-                      "Selected"}
+                    {shortName(
+                      everyone.find((person) => person.id === id)?.name ??
+                        "Selected",
+                      everyone.map((person) => person.name),
+                    )}
                     <X className="size-3" />
                   </button>
                 ))}
@@ -651,7 +709,12 @@ function NewCallDialog({
                           onCheckedChange={() => toggle(person.id)}
                         />
                         <span className="min-w-0 flex-1 truncate">
-                          {person.name}
+                          {shortName(
+                            person.name,
+                            groups.flatMap((group) =>
+                              group.people.map((entry) => entry.name),
+                            ),
+                          )}
                         </span>
                         {person.role === "teacher" && (
                           <span className="text-[10px] tracking-wide text-muted-foreground uppercase">
@@ -708,7 +771,13 @@ interface ChatMediaItem {
   createdAt: number;
 }
 
-function MediaItemCard({ item }: { item: ChatMediaItem }) {
+function MediaItemCard({
+  item,
+  authorLabel,
+}: {
+  item: ChatMediaItem;
+  authorLabel: string;
+}) {
   return (
     <div className="rounded-lg border border-border/70 bg-card p-2.5">
       <div className="flex items-center gap-2">
@@ -762,9 +831,146 @@ function MediaItemCard({ item }: { item: ChatMediaItem }) {
       )}
 
       <p className="mt-1.5 text-[10px] text-muted-foreground">
-        {item.authorName} · {timeAgo(item.createdAt)}
+        {authorLabel} · {timeAgo(item.createdAt)}
       </p>
     </div>
+  );
+}
+
+/** "Add people": everyone in the school who isn't in this chat yet. */
+function AddMembersDialog({
+  chatId,
+  existing,
+  open,
+  onOpenChange,
+}: {
+  chatId: Id<"chats">;
+  /** Accounts already in the chat, so they are not offered again. */
+  existing: Id<"users">[];
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  // The room's class decides who may join, so the picker asks from its side.
+  const people = useQuery(api.chats.people, open ? { chatId } : "skip");
+  const addMembers = useMutation(api.chats.addMembers);
+  const [search, setSearch] = useState("");
+  const [selected, setSelected] = useState<Id<"users">[]>([]);
+  const [adding, setAdding] = useState(false);
+
+  // A closed dialog always reopens empty, so a previous pick is never sent.
+  const changeOpen = (next: boolean) => {
+    if (!next) {
+      setSearch("");
+      setSelected([]);
+      setAdding(false);
+    }
+    onOpenChange(next);
+  };
+
+  const query = search.trim().toLowerCase();
+  const groups = (people?.groups ?? [])
+    .map((group) => ({
+      label: group.label,
+      people: group.people.filter(
+        (person) =>
+          !existing.includes(person.id) &&
+          (!query || person.name.toLowerCase().includes(query)),
+      ),
+    }))
+    .filter((group) => group.people.length > 0);
+
+  const toggle = (id: Id<"users">) => {
+    setSelected((current) =>
+      current.includes(id)
+        ? current.filter((entry) => entry !== id)
+        : [...current, id],
+    );
+  };
+
+  const add = async () => {
+    if (selected.length === 0) return;
+    setAdding(true);
+    try {
+      const result = await addMembers({ chatId, memberIds: selected });
+      if (!result.ok) {
+        toast.error(result.error ?? "Couldn't add them to the chat.");
+        return;
+      }
+      if (result.added === 0) {
+        toast.error("No one was added — they aren't in this class's room.");
+        return;
+      }
+      if (result.skipped > 0) {
+        toast.error(`${result.skipped} skipped — not in this class's room.`);
+      }
+      toast.success(
+        result.added === 1 ? "Added to the chat." : `${result.added} people added.`,
+      );
+      changeOpen(false);
+    } catch (error) {
+      console.error("Add members failed:", error);
+      toast.error("Couldn't add them to the chat. Try again.");
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={changeOpen}>
+      <DialogContent className="max-h-[calc(100dvh-2rem)] gap-3 overflow-y-auto sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Add people</DialogTitle>
+          <DialogDescription>
+            Pick who joins this chat. A class room only takes that class's
+            students and its teachers.
+          </DialogDescription>
+        </DialogHeader>
+
+        {!people?.ok ? (
+          <p className="rounded-lg border border-border/70 bg-muted/40 px-3 py-6 text-center text-sm text-muted-foreground">
+            {people === undefined
+              ? "Loading people…"
+              : "Only a teacher or the admin can add people."}
+          </p>
+        ) : (
+          <>
+            <PeoplePicker
+              groups={groups}
+              selected={selected}
+              toggle={toggle}
+              search={search}
+              setSearch={setSearch}
+              emptyText="Everyone is already in this chat."
+              idPrefix="add"
+            />
+
+            <p className="text-xs text-muted-foreground">
+              {selected.length === 0
+                ? "Nobody selected yet."
+                : `${selected.length} to add.`}
+            </p>
+          </>
+        )}
+
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => changeOpen(false)}
+          >
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            onClick={() => void add()}
+            disabled={!people?.ok || selected.length === 0 || adding}
+          >
+            {adding ? <Loader2 className="animate-spin" /> : <UserPlus />}
+            Add
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -790,8 +996,10 @@ function ChatDetailsDialog({
   );
   const renameChat = useMutation(api.chats.rename);
   const removeChat = useMutation(api.chats.remove);
+  const removeMember = useMutation(api.chats.removeMember);
   const [savingName, setSavingName] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [addingOpen, setAddingOpen] = useState(false);
 
   const saveName = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -836,6 +1044,22 @@ function ChatDetailsDialog({
     }
   };
 
+  /** Take somebody out of the chat; they lose access to it and its history. */
+  const kick = async (userId: Id<"users">, name: string) => {
+    if (!chatId) return;
+    try {
+      const result = await removeMember({ chatId, userId });
+      if (!result.ok) {
+        toast.error(result.error ?? "Couldn't remove them from the chat.");
+        return;
+      }
+      toast.success(`${shortName(name)} was removed from the chat.`);
+    } catch (error) {
+      console.error("Remove member failed:", error);
+      toast.error("Couldn't remove them from the chat. Try again.");
+    }
+  };
+
   const media: ChatMediaItem[] = details?.media ?? [];
   const videos = media.filter((item) => item.mimeType.startsWith("video/"));
   const recordings = media.filter((item) => item.mimeType.startsWith("audio/"));
@@ -847,12 +1071,26 @@ function ChatDetailsDialog({
       !item.mimeType.startsWith("image/"),
   );
 
+  const detailMembers = (details?.members ?? []).map((member) => member.name);
+  const memberLabels = shortNames(detailMembers);
+  // Staff can change who is in a group chat, unless the room is frozen
+  // (history only).
+  const canManage =
+    isStaff && details?.readOnly !== true && details?.chat?.kind === "group";
+  const authorLabels = shortNames([
+    ...detailMembers,
+    ...(details?.media ?? []).map((item) => item.authorName),
+    ...(details?.links ?? []).map((link) => link.authorName),
+  ]);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[calc(100dvh-2rem)] gap-3 overflow-y-auto sm:max-w-xl">
         <DialogHeader>
           <DialogTitle className="truncate">
-            {details?.chat?.title ?? "Chat details"}
+            {details?.chat
+              ? shortChatTitle(details.chat.title, detailMembers)
+              : "Chat details"}
           </DialogTitle>
           <DialogDescription>
             {details?.chat?.isClassChat
@@ -861,7 +1099,10 @@ function ChatDetailsDialog({
                 ? "Private conversation"
                 : "Group chat"}
             {details?.chat?.createdByName
-              ? ` · started by ${details.chat.createdByName}`
+              ? ` · started by ${shortName(
+                  details.chat.createdByName,
+                  detailMembers,
+                )}`
               : ""}
           </DialogDescription>
         </DialogHeader>
@@ -916,6 +1157,17 @@ function ChatDetailsDialog({
 
               <div className="max-h-[46vh] overflow-y-auto pr-1">
                 <TabsContent value="members" className="mt-2 flex flex-col gap-0.5">
+                  {canManage && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="mb-1 h-8 justify-start gap-2 text-xs"
+                      onClick={() => setAddingOpen(true)}
+                    >
+                      <UserPlus className="size-3.5" />
+                      Add people
+                    </Button>
+                  )}
                   {details.members.map((member) => (
                     <div
                       key={member.id}
@@ -925,15 +1177,59 @@ function ChatDetailsDialog({
                         {initials(member.name)}
                       </span>
                       <span className="min-w-0 flex-1 truncate text-sm">
-                        {member.name}
+                        {memberLabels.get(member.name) ?? member.name}
                       </span>
                       {member.isMe && (
                         <Badge variant="secondary" className="text-[10px]">
                           you
                         </Badge>
                       )}
+                      {!member.isMe && canManage && (
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="size-7 shrink-0 text-muted-foreground hover:text-destructive"
+                              aria-label={`Remove ${member.name} from this chat`}
+                              title="Remove from chat"
+                            >
+                              <X className="size-3.5" />
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>
+                                Remove{" "}
+                                {memberLabels.get(member.name) ?? member.name}?
+                              </AlertDialogTitle>
+                              <AlertDialogDescription>
+                                They leave this chat and lose access to its
+                                messages. You can add them back later.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <AlertDialogAction
+                                onClick={() => void kick(member.id, member.name)}
+                              >
+                                Remove
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      )}
                     </div>
                   ))}
+                  {details.chat && (
+                    <AddMembersDialog
+                      chatId={details.chat.id}
+                      existing={details.members.map((member) => member.id)}
+                      open={addingOpen}
+                      onOpenChange={setAddingOpen}
+                    />
+                  )}
                 </TabsContent>
 
                 <TabsContent value="media" className="mt-2 flex flex-col gap-4">
@@ -949,7 +1245,14 @@ function ChatDetailsDialog({
                             Videos · {videos.length}
                           </p>
                           {videos.map((item) => (
-                            <MediaItemCard key={item.id} item={item} />
+                            <MediaItemCard
+                              key={item.id}
+                              item={item}
+                              authorLabel={
+                                authorLabels.get(item.authorName) ??
+                                item.authorName
+                              }
+                            />
                           ))}
                         </section>
                       )}
@@ -959,7 +1262,14 @@ function ChatDetailsDialog({
                             Audio · {recordings.length}
                           </p>
                           {recordings.map((item) => (
-                            <MediaItemCard key={item.id} item={item} />
+                            <MediaItemCard
+                              key={item.id}
+                              item={item}
+                              authorLabel={
+                                authorLabels.get(item.authorName) ??
+                                item.authorName
+                              }
+                            />
                           ))}
                         </section>
                       )}
@@ -969,7 +1279,14 @@ function ChatDetailsDialog({
                             Photos · {photos.length}
                           </p>
                           {photos.map((item) => (
-                            <MediaItemCard key={item.id} item={item} />
+                            <MediaItemCard
+                              key={item.id}
+                              item={item}
+                              authorLabel={
+                                authorLabels.get(item.authorName) ??
+                                item.authorName
+                              }
+                            />
                           ))}
                         </section>
                       )}
@@ -979,7 +1296,14 @@ function ChatDetailsDialog({
                             Files · {files.length}
                           </p>
                           {files.map((item) => (
-                            <MediaItemCard key={item.id} item={item} />
+                            <MediaItemCard
+                              key={item.id}
+                              item={item}
+                              authorLabel={
+                                authorLabels.get(item.authorName) ??
+                                item.authorName
+                              }
+                            />
                           ))}
                         </section>
                       )}
@@ -1007,7 +1331,9 @@ function ChatDetailsDialog({
                             {link.url}
                           </span>
                           <span className="block text-[10px] text-muted-foreground">
-                            {link.authorName} · {timeAgo(link.createdAt)}
+                            {authorLabels.get(link.authorName) ??
+                              link.authorName}{" "}
+                            · {timeAgo(link.createdAt)}
                           </span>
                         </span>
                         <ExternalLink className="size-3.5 shrink-0 text-muted-foreground" />
@@ -1140,6 +1466,11 @@ export default function Messages() {
   const messages = thread?.messages ?? [];
   // A class room the account has moved on from: history only (see chatAccess).
   const readOnly = thread?.readOnly === true;
+  // Everyone in the open chat. Names are stored whole and shortened only on
+  // screen, so a shared first name can pick up its last initial
+  // (see lib/display-name).
+  const memberNames = selected?.members ?? [];
+  const shortMembers = shortNames(memberNames);
 
   // A call in this chat that somebody is still in. It follows the heartbeat
   // each participant sends (see convex/callState.ts), so it disappears when
@@ -1422,7 +1753,7 @@ export default function Messages() {
                     <span className="min-w-0 flex-1">
                       <span className="flex items-center gap-2">
                         <span className="min-w-0 flex-1 truncate text-sm font-medium">
-                          {chat.title}
+                          {shortChatTitle(chat.title, chat.members ?? [])}
                         </span>
                         <span className="shrink-0 text-[10px] text-muted-foreground">
                           {chat.lastMessageText ? timeAgo(chat.lastMessageAt) : ""}
@@ -1434,7 +1765,10 @@ export default function Messages() {
                             ? `${
                                 chat.lastMessageAuthor === chatName
                                   ? "You"
-                                  : chat.lastMessageAuthor
+                                  : shortName(
+                                      chat.lastMessageAuthor,
+                                      chat.members ?? [],
+                                    )
                               }: ${chat.lastMessageText}`
                             : chat.isClassChat
                               ? "Class room — say hello"
@@ -1497,7 +1831,9 @@ export default function Messages() {
                 </Button>
                 <div className="min-w-0 flex-1">
                   <p className="flex min-w-0 items-center gap-2 text-sm font-semibold">
-                    <span className="truncate">{selected.title}</span>
+                    <span className="truncate">
+                      {shortChatTitle(selected.title, memberNames)}
+                    </span>
                     {selected.isClassChat && (
                       <Badge
                         variant="outline"
@@ -1518,11 +1854,12 @@ export default function Messages() {
                   <p className="truncate text-[11px] text-muted-foreground">
                     {selected.kind === "solo"
                       ? "Only the two of you can read this conversation."
-                      : `${selected.memberCount} people: ${selected.members
+                      : `${selected.memberCount} people: ${memberNames
                           .slice(0, 4)
+                          .map((name) => shortMembers.get(name) ?? name)
                           .join(", ")}${
-                          selected.members.length > 4
-                            ? ` +${selected.members.length - 4}`
+                          memberNames.length > 4
+                            ? ` +${memberNames.length - 4}`
                             : ""
                         }`}
                   </p>
@@ -1570,7 +1907,10 @@ export default function Messages() {
                     <span className="font-medium">Call in progress</span>
                     {liveCall.isMine
                       ? " · you started it"
-                      : ` · started by ${liveCall.startedByName}`}
+                      : ` · started by ${shortName(
+                          liveCall.startedByName,
+                          memberNames,
+                        )}`}
                   </p>
                   <Button
                     type="button"
@@ -1605,6 +1945,7 @@ export default function Messages() {
                     <MessageRow
                       key={message.id}
                       message={message}
+                      members={memberNames}
                       canPin={isStaff}
                       canDelete={canDelete(message)}
                       onPin={(row) => void togglePin(row)}

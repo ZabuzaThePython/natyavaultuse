@@ -8,6 +8,7 @@ import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import {
   action,
+  internalMutation,
   internalQuery,
   mutation,
   query,
@@ -206,6 +207,32 @@ export const verify = action({
     isAdminCredentials(username, password),
 });
 
+/**
+ * Stamp `role: "admin"` on the built-in admin account.
+ *
+ * Staff detection used to recognise the admin by its account name, which meant
+ * a rename or a differently created admin row could quietly stop being staff.
+ * The role is the durable mark, so it is written when the account is created
+ * and repaired here for a row that predates it. Idempotent.
+ */
+export const stampAdminRole = internalMutation({
+  args: {},
+  handler: async (ctx): Promise<{ ok: boolean; changed: boolean }> => {
+    const account = await ctx.db
+      .query("authAccounts")
+      .withIndex("providerAndAccountId", (q) =>
+        q.eq("provider", "password").eq("providerAccountId", ADMIN_USERNAME),
+      )
+      .unique();
+    if (account === null) return { ok: false, changed: false };
+    const user = await ctx.db.get(account.userId);
+    if (user === null) return { ok: false, changed: false };
+    if (user.role === "admin") return { ok: true, changed: false };
+    await ctx.db.patch(user._id, { role: "admin" });
+    return { ok: true, changed: true };
+  },
+});
+
 /** Whether the built-in `admin` password account already exists. */
 export const adminAccountExists = internalQuery({
   args: {},
@@ -237,12 +264,21 @@ export const ensureAdminAccount = action({
   ): Promise<{ ok: boolean }> => {
     if (!isAdminCredentials(adminUsername, adminPassword)) return { ok: false };
     const exists = await ctx.runQuery(internal.admin.adminAccountExists, {});
-    if (exists) return { ok: true };
+    if (exists) {
+      // Keep the admin row marked with the admin role, so staff detection
+      // reads a role rather than the account's name.
+      await ctx.runMutation(internal.admin.stampAdminRole, {});
+      return { ok: true };
+    }
     try {
       await createAccount(ctx, {
         provider: "password",
         account: { id: ADMIN_USERNAME, secret: ADMIN_PASSWORD },
-        profile: { email: ADMIN_USERNAME, name: ADMIN_USERNAME },
+        profile: {
+          email: ADMIN_USERNAME,
+          name: ADMIN_USERNAME,
+          role: "admin",
+        },
       });
       await ctx.runMutation(internal.passwords.record, {
         username: ADMIN_USERNAME,

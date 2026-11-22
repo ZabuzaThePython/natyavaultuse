@@ -40,6 +40,7 @@ import {
   TabsTrigger,
 } from "@/components/ui/tabs";
 import { api } from "@/convex/_generated/api";
+import { firstName } from "@/lib/display-name";
 import { useAuth } from "@/hooks/use-auth";
 import { getAdminCreds } from "@/lib/admin";
 import { STORAGE_PLANS } from "@/lib/plans";
@@ -573,7 +574,7 @@ export default function Admin() {
                   </p>
                   {account.fullName && account.fullName !== account.username && (
                     <p className="truncate text-xs font-medium">
-                      {account.fullName}
+                      {firstName(account.fullName)}
                     </p>
                   )}
                   <p className="truncate text-xs text-muted-foreground">
@@ -810,7 +811,9 @@ export default function Admin() {
                 {initials}
               </span>
               <div className="min-w-0">
-                <p className="truncate text-sm font-semibold">{displayName}</p>
+                <p className="truncate text-sm font-semibold">
+                  {firstName(displayName)}
+                </p>
                 <p className="truncate text-xs text-muted-foreground">
                   {user?.email ?? "Signed in on this device"}
                 </p>

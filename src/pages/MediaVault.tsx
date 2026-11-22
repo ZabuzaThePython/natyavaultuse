@@ -87,8 +87,10 @@ import {
 import { useAction, useMutation, useQuery } from "convex/react";
 import {
   Fragment,
+  useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type DragEvent,
   type FormEvent,
@@ -114,6 +116,15 @@ interface UploadForm {
   title: string;
   /** Folder id, or ROOT for the vault root. */
   folderId: string;
+}
+
+/** What a Drive file needs to be put on the class shelf. */
+interface ShareableFile {
+  kind: MediaKind;
+  title: string;
+  mimeType: string;
+  driveFileId: string;
+  date: string;
 }
 
 /** "2.4 MB" style label for Drive file sizes. */
@@ -284,6 +295,13 @@ export default function MediaVault() {
   );
 
   /**
+   * True when this browser keeps its own row for the file as well — a Drive
+   * import sits in this browser's folders and on the class shelf at once.
+   */
+  const isLocalCopy = (item: MediaItem) =>
+    vault.media.some((media) => media.id === item.id);
+
+  /**
    * How much media is still stored in this browser (base64 data URLs).
    *
    * localStorage is small and shared with everything else the app remembers —
@@ -366,6 +384,99 @@ export default function MediaVault() {
     date: today(),
   });
 
+  /**
+   * Put Drive imports on the class shelf as well.
+   *
+   * A file picked from Google Drive stays in the importer's own Drive — only
+   * its id is recorded — so the class plays it with that account's stored
+   * token, the same way an upload made before the class archive was connected
+   * is served. Imports used to be listed in this browser alone, so a folder a
+   * teacher added from Drive never reached their students.
+   *
+   * Returns how many files the class can now see.
+   */
+  const shareImported = useCallback(
+    async (files: ShareableFile[]) => {
+      const code = vault.classCode;
+      if (!code || files.length === 0) return 0;
+
+      // One call per file: a big folder import still finishes quickly because
+      // the Convex client sends them over the same connection.
+      const results = await Promise.allSettled(
+        files.map((file) =>
+          addSharedMedia({
+            code,
+            kind: file.kind,
+            title: file.title,
+            mimeType: file.mimeType,
+            driveFileId: file.driveFileId,
+            date: file.date,
+            // The bytes are in the importer's Drive, not the class archive.
+            owner: "uploader",
+          }),
+        ),
+      );
+
+      let failed = 0;
+      let reason: string | null = null;
+      for (const result of results) {
+        if (result.status === "rejected") {
+          failed++;
+          continue;
+        }
+        if (!result.value.ok) {
+          failed++;
+          reason = reason ?? result.value.error;
+        }
+      }
+      if (failed > 0) {
+        toast.error(
+          `${failed} of ${files.length} Drive file${
+            files.length === 1 ? "" : "s"
+          } could not be shared with the class${
+            reason ? ` — ${reason}` : ""
+          }. They stay in your own vault.`,
+        );
+      }
+      return files.length - failed;
+    },
+    [addSharedMedia, vault.classCode],
+  );
+
+  /**
+   * Drive-backed files that exist only in this browser — an import, or an
+   * upload from before the class shelf existed — are shared once when the page
+   * opens, so the class can play what is already in the vault.
+   */
+  const sharedLocalFiles = useRef(false);
+  useEffect(() => {
+    if (sharedLocalFiles.current) return;
+    if (!vault.classCode || sharedMedia === undefined || !sharedMedia.ok) return;
+    const known = new Set<string>();
+    for (const item of sharedMedia.items) {
+      if (item.driveFileId) known.add(item.driveFileId);
+    }
+    const missing = vault.media.filter(
+      (item) =>
+        item.driveFileId &&
+        // Only files this account put here: another account's Drive file
+        // cannot be read with this account's token.
+        item.uploadedBy === currentName &&
+        !known.has(item.driveFileId),
+    );
+    if (missing.length === 0) return;
+    sharedLocalFiles.current = true;
+    void shareImported(
+      missing.map((item) => ({
+        kind: item.kind,
+        title: item.title,
+        mimeType: item.mimeType,
+        driveFileId: item.driveFileId!,
+        date: item.date,
+      })),
+    );
+  }, [currentName, shareImported, sharedMedia, vault.classCode, vault.media]);
+
   /** Vault import payload for a Drive folder and everything inside it (deep). */
   const buildSubtreePayload = async (rootId: string) => {
     const subtree = await listDriveSubtree({ folderId: rootId });
@@ -399,10 +510,13 @@ export default function MediaVault() {
     try {
       const { folders, files } = await buildSubtreePayload(folder.id);
       const result = importFromDrive(folders, files, openFolder);
+      const sharedCount = await shareImported(files);
       toast.success(
         `Added “${folder.name}” — ${result.media} file${
           result.media === 1 ? "" : "s"
-        } in ${result.folders} folder${result.folders === 1 ? "" : "s"}.`,
+        } in ${result.folders} folder${result.folders === 1 ? "" : "s"}.${
+          sharedCount > 0 ? " Their files are on the class shelf too." : ""
+        }`,
       );
     } catch (error) {
       console.error("Drive folder import failed:", error);
@@ -416,9 +530,15 @@ export default function MediaVault() {
     }
   };
 
-  const handleAddDriveFile = (file: DriveBrowseFile) => {
-    importFromDrive([], [toImportFile(file, null)], openFolder);
-    toast.success(`Added “${file.name}” to the vault.`);
+  const handleAddDriveFile = async (file: DriveBrowseFile) => {
+    const imported = [toImportFile(file, null)];
+    importFromDrive([], imported, openFolder);
+    const sharedCount = await shareImported(imported);
+    toast.success(
+      `Added “${file.name}” to the vault${
+        sharedCount > 0 ? " — everyone in your class can play it" : ""
+      }.`,
+    );
   };
 
   /** Add every folder and file shown at the current Drive level. */
@@ -442,10 +562,13 @@ export default function MediaVault() {
       }
       for (const file of filesAtLevel) files.push(toImportFile(file, null));
       const result = importFromDrive(folders, files, openFolder);
+      const sharedCount = await shareImported(files);
       toast.success(
         `Added ${result.media} file${result.media === 1 ? "" : "s"} in ${
           result.folders
-        } folder${result.folders === 1 ? "" : "s"} from Google Drive.`,
+        } folder${result.folders === 1 ? "" : "s"} from Google Drive.${
+          sharedCount > 0 ? " Their files are on the class shelf too." : ""
+        }`,
       );
       setDrivePickerOpen(false);
     } catch (error) {
@@ -760,6 +883,13 @@ export default function MediaVault() {
         toast.error(result.error ?? "Could not rename that file.");
         return;
       }
+      // A Drive import also has a row in this browser's vault, which is where
+      // its folder lives — move that copy too, so the layout follows.
+      if (isLocalCopy(editing)) {
+        updateMedia(editing.id, {
+          folderId: editFolder === ROOT ? null : editFolder,
+        });
+      }
     } else {
       updateMedia(editing.id, {
         title,
@@ -842,7 +972,7 @@ export default function MediaVault() {
 
   /** The grip a teacher drags; students never see it. */
   const reorderHandle = (item: VaultItem, tone: "row" | "overlay") =>
-    canArrange && !item.sharedId ? (
+    canArrange && (!item.sharedId || isLocalCopy(item)) ? (
       <button
         type="button"
         draggable
@@ -1100,7 +1230,7 @@ export default function MediaVault() {
               }
               title={
                 personalDrive
-                  ? "Import files and folders from your own Google Drive (kept on this device)"
+                  ? "Import files and folders from your own Google Drive (files are shared with your class)"
                   : "Connect your own Google Drive to import from it — this is not the class vault"
               }
             >
@@ -1601,9 +1731,10 @@ export default function MediaVault() {
                 required
               />
             </div>
-            {/* Class uploads have no folder: everyone's copy of the shelf
-                would need the same folder ids, and folders are per browser. */}
-            {!editing?.sharedId && (
+            {/* A class upload has no folder: everyone's copy of the shelf
+                would need the same folder ids, and folders are per browser.
+                A Drive import keeps its own local row, so it still moves. */}
+            {(!editing?.sharedId || (editing !== null && isLocalCopy(editing))) && (
               <div className="flex flex-col gap-1.5">
                 <Label>Folder</Label>
                 <FolderPicker

@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { api } from "@/convex/_generated/api";
 import { useViewerIsStaff } from "@/lib/classes";
 import { useClassPractice, type PracticeEntryView } from "@/lib/practice";
+import { shortNames } from "@/lib/display-name";
 import { formatDate, useVault } from "@/lib/vault";
 import { useMutation } from "convex/react";
 import { CalendarDays, Clock3, Lock, Plus, Trash2, Users } from "lucide-react";
@@ -97,6 +98,12 @@ export default function PracticeLog() {
 
   const teacherMinutes = teacherLogs.reduce((sum, l) => sum + l.minutes, 0);
   const teacherStudents = new Set(teacherLogs.map((l) => l.author)).size;
+  // Students are listed by first name, with a last initial when two of them
+  // share one (see lib/display-name).
+  const authorLabels = useMemo(
+    () => shortNames(teacherLogs.map((log) => log.author)),
+    [teacherLogs],
+  );
   const rangeLabel =
     RANGES.find((r) => r.value === activeRange)?.label.toLowerCase() ?? "";
 
@@ -357,7 +364,7 @@ export default function PracticeLog() {
                             variant="secondary"
                             className="px-1.5 text-[11px]"
                           >
-                            {log.author}
+                            {authorLabels.get(log.author) ?? log.author}
                           </Badge>
                         )}
                       </div>

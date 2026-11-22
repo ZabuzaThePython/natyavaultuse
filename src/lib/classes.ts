@@ -15,6 +15,7 @@ import { api } from "@/convex/_generated/api";
 import { useAuth } from "@/hooks/use-auth";
 import type { AttendanceEntry } from "@/lib/vault";
 import { useQuery } from "convex/react";
+import { getLastAccount } from "@/lib/last-account";
 import { useEffect, useMemo } from "react";
 
 export interface ClassSummary {
@@ -78,28 +79,30 @@ export interface ViewerRole {
   signedIn: boolean | null;
 }
 
-/** Last role the deployment confirmed for an account, kept per account name. */
+/** Last role the deployment confirmed for an account, kept per account. */
 const ROLE_CACHE_KEY = "natyavault.roles.v1";
 
-function readCachedRole(name: string | undefined): boolean | null {
-  if (!name) return null;
+function readCachedRole(account: string | undefined): boolean | null {
+  if (!account) return null;
   try {
     const raw = localStorage.getItem(ROLE_CACHE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Record<string, unknown>;
-    return typeof parsed[name] === "boolean" ? (parsed[name] as boolean) : null;
+    return typeof parsed[account] === "boolean"
+      ? (parsed[account] as boolean)
+      : null;
   } catch {
     return null;
   }
 }
 
-function writeCachedRole(name: string | undefined, isStaff: boolean) {
-  if (!name) return;
+function writeCachedRole(account: string | undefined, isStaff: boolean) {
+  if (!account) return;
   try {
     const raw = localStorage.getItem(ROLE_CACHE_KEY);
     const parsed = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
     const next = parsed && typeof parsed === "object" ? parsed : {};
-    next[name] = isStaff;
+    next[account] = isStaff;
     localStorage.setItem(ROLE_CACHE_KEY, JSON.stringify(next));
   } catch {
     // Storage refused the write — the role simply won't be remembered.
@@ -119,16 +122,33 @@ function writeCachedRole(name: string | undefined, isStaff: boolean) {
  */
 export function useViewerIsStaff(): ViewerRole {
   const { user } = useAuth();
-  const name = user?.name ?? user?.email ?? undefined;
   const data = useQuery(api.classes.viewerRole);
-  const cached = useMemo(() => readCachedRole(name), [name]);
+
+  // Which account the answer belongs to: the account id (the username kept in
+  // `email`), not the display name, so renaming yourself keeps the memory.
+  // While `currentUser` reloads — a token refresh, a waking tab — it falls back
+  // to the account this browser last signed in with instead of to nobody, which
+  // is what used to drop the admin to the student view until they signed in
+  // again.
+  const account = (
+    user?.email ??
+    user?.name ??
+    getLastAccount()?.username
+  )?.toLowerCase();
+
+  // Only a signed-in answer counts. "Not signed in" is what a request that
+  // arrives without a token says, so it must never be remembered as
+  // "student": the deployment enforces every permission regardless, so keeping
+  // the last confirmed role through that gap is safe and stops the flicker.
+  const confirmed = data?.signedIn === true ? data.isStaff : null;
+  const cached = useMemo(() => readCachedRole(account), [account]);
 
   useEffect(() => {
-    if (data) writeCachedRole(name, data.isStaff);
-  }, [data, name]);
+    if (confirmed !== null) writeCachedRole(account, confirmed);
+  }, [confirmed, account]);
 
   return {
-    isStaff: data ? data.isStaff : (cached ?? false),
+    isStaff: confirmed ?? cached ?? false,
     isLoading: data === undefined && cached === null,
     signedIn: data === undefined ? null : data.signedIn,
   };

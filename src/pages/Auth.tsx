@@ -75,7 +75,7 @@ const ROLES: {
   },
 ];
 
-const USERNAME_PATTERN = /^[A-Za-z0-9._-]{3,32}$/;
+const USERNAME_PATTERN = /^[A-Za-z0-9._@-]{3,32}$/;
 
 function Auth({ redirectAfterAuth }: AuthProps = {}) {
   const { isLoading: authLoading, isAuthenticated, signIn } = useAuth();
@@ -175,7 +175,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
     }
     if (!USERNAME_PATTERN.test(username)) {
       setError(
-        "Your name must be 3–32 characters: letters, numbers, dots, dashes or underscores.",
+        "Your username must be 3–32 characters: letters, numbers, dots, dashes, underscores or @.",
       );
       return;
     }
@@ -521,8 +521,8 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                   </div>
                   {mode === "signUp" && (
                     <p className="text-[11px] text-muted-foreground">
-                      Username — 3–32 letters, numbers, dots, dashes or
-                      underscores. You sign in with this.
+                      Username — 3–32 letters, numbers, dots, dashes,
+                      underscores or @. You sign in with this.
                     </p>
                   )}
                   {lastAccount && (

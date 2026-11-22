@@ -305,6 +305,13 @@ const schema = defineSchema(
        * posts again after this moment.
        */
       hiddenAt: v.optional(v.number()),
+      /**
+       * Set when staff took this person out of the chat. The row stays so a
+       * class room cannot quietly add them back the next time they open
+       * Messages (see ensureRoom in convex/chats.ts); adding them again
+       * clears it.
+       */
+      removedAt: v.optional(v.number()),
     })
       .index("by_chat", ["chatId"])
       .index("by_user", ["userId"])

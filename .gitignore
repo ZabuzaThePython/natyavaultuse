@@ -1,4 +1,16 @@
-.env.local
 node_modules
 dist
-src/convex/_generated
+/freebuff-sites-build/
+
+# Hosting artifacts produced by the deployment toolchain, not by the project
+/sites.manifest.json
+/sites-worker.js
+/convex-backend.patch
+
+# Local environment files — never commit these
+.env.local
+.env.production
+
+# Local repo transfer files
+*.bundle
+*.zip

@@ -36,6 +36,7 @@ import {
   type AttendanceEntry,
   type AttendanceStatus,
 } from "@/lib/vault";
+import { shortName, shortNames } from "@/lib/display-name";
 import { cn } from "@/lib/utils";
 import {
   Ban,
@@ -105,14 +106,15 @@ const STATUS_LABEL: Record<AttendanceStatus, string> = {
 function describeMark(
   entry: AttendanceEntry,
   markedBySomeoneElse: boolean,
+  markedByLabel: string = entry.markedBy,
 ): string {
   if (entry.status === "away") {
     return markedBySomeoneElse
-      ? `Not attending — noted by ${entry.markedBy}`
+      ? `Not attending — noted by ${markedByLabel}`
       : "Not attending — told the teacher";
   }
   return markedBySomeoneElse
-    ? `Marked ${STATUS_LABEL[entry.status].toLowerCase()} by ${entry.markedBy}`
+    ? `Marked ${STATUS_LABEL[entry.status].toLowerCase()} by ${markedByLabel}`
     : `Marked ${STATUS_LABEL[entry.status].toLowerCase()} themselves`;
 }
 
@@ -177,6 +179,15 @@ export default function Attendance() {
     () => (sheetReady ? roster : []),
     [sheetReady, roster],
   );
+  // The sheet shows first names, and a last initial for the classmates who
+  // share one (see lib/display-name). Marks store the full name, so that is
+  // what keeps matching by name.
+  const rosterLabels = useMemo(
+    () => shortNames(visibleRoster),
+    [visibleRoster],
+  );
+  const labelFor = (name: string) =>
+    rosterLabels.get(name) ?? shortName(name, visibleRoster);
 
   const marked = useMemo(
     () =>
@@ -550,7 +561,7 @@ export default function Attendance() {
                     </span>
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium">
-                        {name}
+                        {labelFor(name)}
                         {name === currentName && (
                           <span className="font-normal text-muted-foreground">
                             {" "}
@@ -560,7 +571,11 @@ export default function Attendance() {
                       </p>
                       <p className="truncate text-xs text-muted-foreground">
                         {entry
-                          ? describeMark(entry, entry.markedBy !== entry.name)
+                          ? describeMark(
+                              entry,
+                              entry.markedBy !== entry.name,
+                              labelFor(entry.markedBy),
+                            )
                           : "Not marked yet"}
                       </p>
                     </div>
@@ -748,7 +763,7 @@ export default function Attendance() {
                         </div>
                         {names.length > 0 && (
                           <p className={cn("text-xs leading-relaxed", tone)}>
-                            {names.join(", ")}
+                            {names.map(labelFor).join(", ")}
                           </p>
                         )}
                       </div>
@@ -836,7 +851,7 @@ export default function Attendance() {
                         key={name}
                         className="flex items-center justify-between gap-2 rounded-lg border border-border/70 bg-background px-3 py-2"
                       >
-                        <p className="truncate text-sm">{name}</p>
+                        <p className="truncate text-sm">{labelFor(name)}</p>
                         <Button
                           type="button"
                           variant="ghost"

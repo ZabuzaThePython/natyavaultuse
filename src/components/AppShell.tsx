@@ -42,6 +42,7 @@ import {
   useViewerIsStaff,
 } from "@/lib/classes";
 import { rememberAccount } from "@/lib/last-account";
+import { firstName } from "@/lib/display-name";
 import {
   setActiveClass,
   setPracticeLogEnabled,
@@ -446,7 +447,10 @@ export default function AppShell() {
   const activeLabel =
     navItems.find((i) => i.path === activePath)?.label ?? "Dashboard";
 
+  // The sidebar's account block keeps the full name; the header pill next to
+  // the avatar shows only the first name (see lib/display-name).
   const displayName = user?.name || "My Vault";
+  const shortDisplayName = firstName(displayName);
 
   // Accounts made before sign-up asked for a full name still go by their
   // username, so they are asked once here (see convex/names.ts). "Later"
@@ -596,7 +600,7 @@ export default function AppShell() {
                   {initials}
                 </span>
                 <span className="hidden text-xs font-medium sm:inline">
-                  {displayName}
+                  {shortDisplayName}
                 </span>
               </NavLink>
             ) : (
@@ -609,7 +613,7 @@ export default function AppShell() {
                   {initials}
                 </span>
                 <span className="hidden text-xs font-medium sm:inline">
-                  {displayName}
+                  {shortDisplayName}
                 </span>
               </div>
             )}

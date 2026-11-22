@@ -267,6 +267,18 @@ export const forgetTokens = internalMutation({
   },
 });
 
+/** Forget a stored token without touching the files tracked against it. */
+export const clearTokens = internalMutation({
+  args: { userId: v.id("users") },
+  handler: async (ctx, { userId }) => {
+    const tokens = await ctx.db
+      .query("driveTokens")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .unique();
+    if (tokens !== null) await ctx.db.delete(tokens._id);
+  },
+});
+
 export const listFiles = internalQuery({
   args: { userId: v.id("users") },
   handler: async (ctx, { userId }) =>
@@ -543,10 +555,72 @@ export const disconnect = action({
 
 // ------------------------------------------------------------------ helpers
 
-/** A valid access token for this user, refreshed when it is about to expire. */
-export async function accessTokenFor(
+/**
+ * Whether Google has stopped accepting a token we still hold.
+ *
+ * Expiry alone can't be trusted: a grant revoked from the user's Google account
+ * keeps its recorded `expiresAt`, so Drive answers 401 for the rest of that
+ * hour and every call surfaces a raw "invalid authentication credentials"
+ * error. One cheap request settles it. A 401 caused by our own client
+ * configuration is not revocation and must not drop a working connection.
+ */
+async function tokenRevoked(accessToken: string): Promise<boolean> {
+  let response: Response;
+  try {
+    response = await timedFetch(`${DRIVE_API}/about?fields=user`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+  } catch {
+    // A network blip is not a revocation; let the real call report it.
+    return false;
+  }
+  if (response.status !== 401) return false;
+  // Drive answers with `error` as an object, the token endpoint with a string;
+  // a broken client id shows up as the latter.
+  const json = (await response.json().catch(() => null)) as {
+    error?: string | { errors?: { reason?: string }[] };
+  } | null;
+  const reason =
+    typeof json?.error === "string"
+      ? json.error
+      : json?.error?.errors?.[0]?.reason;
+  return !(
+    reason === "invalid_client" ||
+    reason === "deleted_client" ||
+    reason === "unauthorized_client"
+  );
+}
+
+/**
+ * A token Google still accepts, for one of the two Drive connections.
+ *
+ * A stored token is trusted only while it is unexpired *and* still accepted:
+ * revoking a grant from the user's Google account leaves `expiresAt` an hour
+ * in the future, so Drive answers 401 until the clock catches up and every call
+ * surfaced a raw "invalid authentication credentials" error. A token that
+ * fails that check is refreshed like an expiring one; if the refresh is refused
+ * as well, the connection is cleared and the caller told to reconnect.
+ */
+async function driveToken(
   ctx: { runQuery: unknown; runMutation: unknown },
-  userId: Id<"users">,
+  store: {
+    /** Internal query returning the stored tokens, or null. */
+    read: unknown;
+    readArgs: Record<string, unknown>;
+    /** Internal mutation storing a refreshed token. */
+    save: unknown;
+    saveArgs: (token: {
+      accessToken: string;
+      refreshToken: string;
+      expiresAt: number;
+      scope: string;
+    }) => Record<string, unknown>;
+    /** Internal mutation forgetting the connection, keeping what it uploaded. */
+    clear: unknown;
+    clearArgs: Record<string, unknown>;
+    notConnected: string;
+    reconnect: string;
+  },
 ): Promise<string> {
   const run = ctx as {
     runQuery: <T>(fn: unknown, args: unknown) => Promise<T>;
@@ -556,42 +630,61 @@ export async function accessTokenFor(
     accessToken: string;
     refreshToken: string;
     expiresAt: number;
-  } | null>(internal.drive.getTokens, { userId });
-  if (tokens === null) {
-    throw new Error("Connect Google Drive first.");
+  } | null>(store.read, store.readArgs);
+  if (tokens === null) throw new Error(store.notConnected);
+  if (
+    tokens.expiresAt - Date.now() > 60_000 &&
+    !(await tokenRevoked(tokens.accessToken))
+  ) {
+    return tokens.accessToken;
   }
-  if (tokens.expiresAt - Date.now() > 60_000) return tokens.accessToken;
 
-  const body = new URLSearchParams({
-    client_id: clientId()!,
-    client_secret: clientSecret()!,
-    refresh_token: tokens.refreshToken,
-    grant_type: "refresh_token",
-  });
   const response = await timedFetch(TOKEN_ENDPOINT, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: body.toString(),
+    body: new URLSearchParams({
+      client_id: clientId()!,
+      client_secret: clientSecret()!,
+      refresh_token: tokens.refreshToken,
+      grant_type: "refresh_token",
+    }).toString(),
   });
   const json = (await response.json()) as {
     access_token?: string;
     expires_in?: number;
-    error?: string;
   };
   if (!response.ok || !json.access_token) {
-    await run.runMutation(internal.drive.forgetTokens, { userId });
-    throw new Error(
-      "Your Google Drive access expired — connect it again from the Media Vault.",
-    );
+    await run.runMutation(store.clear, store.clearArgs);
+    throw new Error(store.reconnect);
   }
-  await run.runMutation(internal.drive.saveTokens, {
-    userId,
-    accessToken: json.access_token,
-    refreshToken: tokens.refreshToken,
-    expiresAt: Date.now() + (json.expires_in ?? 3600) * 1000,
-    scope: DRIVE_SCOPE,
-  });
+  await run.runMutation(
+    store.save,
+    store.saveArgs({
+      accessToken: json.access_token,
+      refreshToken: tokens.refreshToken,
+      expiresAt: Date.now() + (json.expires_in ?? 3600) * 1000,
+      scope: DRIVE_SCOPE,
+    }),
+  );
   return json.access_token;
+}
+
+/** A valid access token for this user, refreshed when it is about to expire. */
+export async function accessTokenFor(
+  ctx: { runQuery: unknown; runMutation: unknown },
+  userId: Id<"users">,
+): Promise<string> {
+  return driveToken(ctx, {
+    read: internal.drive.getTokens,
+    readArgs: { userId },
+    save: internal.drive.saveTokens,
+    saveArgs: (token) => ({ userId, ...token }),
+    clear: internal.drive.clearTokens,
+    clearArgs: { userId },
+    notConnected: "Connect Google Drive first.",
+    reconnect:
+      "Your Google Drive access expired — connect it again from the Media Vault.",
+  });
 }
 
 /**
@@ -604,51 +697,17 @@ export async function vaultAccessToken(ctx: {
   runQuery: unknown;
   runMutation: unknown;
 }): Promise<string> {
-  const run = ctx as {
-    runQuery: <T>(fn: unknown, args: unknown) => Promise<T>;
-    runMutation: <T>(fn: unknown, args: unknown) => Promise<T>;
-  };
-  const tokens = await run.runQuery<{
-    accessToken: string;
-    refreshToken: string;
-    expiresAt: number;
-  } | null>(internal.drive.getVaultTokens, {});
-  if (tokens === null) {
-    throw new Error("The class Drive is not connected yet.");
-  }
-  if (tokens.expiresAt - Date.now() > 60_000) return tokens.accessToken;
-
-  const body = new URLSearchParams({
-    client_id: clientId()!,
-    client_secret: clientSecret()!,
-    refresh_token: tokens.refreshToken,
-    grant_type: "refresh_token",
-  });
-  const response = await timedFetch(TOKEN_ENDPOINT, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: body.toString(),
-  });
-  const json = (await response.json()) as {
-    access_token?: string;
-    expires_in?: number;
-    error?: string;
-  };
-  if (!response.ok || !json.access_token) {
-    // A revoked class archive stops every class upload from playing, so the
-    // connection is cleared and the admin is told to reconnect.
-    await run.runMutation(internal.drive.clearVaultTokens, {});
-    throw new Error(
+  return driveToken(ctx, {
+    read: internal.drive.getVaultTokens,
+    readArgs: {},
+    save: internal.drive.saveVaultTokens,
+    saveArgs: (token) => token,
+    clear: internal.drive.clearVaultTokens,
+    clearArgs: {},
+    notConnected: "The class Drive is not connected yet.",
+    reconnect:
       "The class Drive connection expired — the admin needs to reconnect it from the Media Vault.",
-    );
-  }
-  await run.runMutation(internal.drive.saveVaultTokens, {
-    accessToken: json.access_token,
-    refreshToken: tokens.refreshToken,
-    expiresAt: Date.now() + (json.expires_in ?? 3600) * 1000,
-    scope: DRIVE_SCOPE,
   });
-  return json.access_token;
 }
 
 /**

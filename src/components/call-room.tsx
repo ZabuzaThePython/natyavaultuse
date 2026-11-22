@@ -19,6 +19,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { api } from "@/convex/_generated/api";
+import { shortNames } from "@/lib/display-name";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useAction, useMutation } from "convex/react";
 import {
@@ -53,10 +54,12 @@ function CallTile({
   participant,
   revision,
   isLocal,
+  label,
 }: {
   participant: Participant;
   revision: number;
   isLocal: boolean;
+  label: string;
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -125,7 +128,7 @@ function CallTile({
           <MicOff className="size-3 shrink-0 text-red-300" />
         )}
         <span className="truncate">
-          {name}
+          {label}
           {isLocal ? " (you)" : ""}
         </span>
       </div>
@@ -304,6 +307,11 @@ export function CallDialog({
   const people: Participant[] = room
     ? [room.localParticipant, ...room.remoteParticipants.values()]
     : [];
+  // First names on the tiles, with a last initial when two people on the call
+  // share one (see lib/display-name).
+  const nameLabels = shortNames(
+    people.map((person) => person.name?.trim() || person.identity),
+  );
 
   // Every tap in the call retries the audio unlock, so the first button you
   // press on iOS is enough to hear people.
@@ -417,14 +425,18 @@ export function CallDialog({
           </div>
         ) : (
           <div className="grid flex-1 auto-rows-min grid-cols-2 gap-2 overflow-y-auto p-2 sm:grid-cols-3 sm:p-3 lg:grid-cols-4">
-            {people.map((participant) => (
-              <CallTile
-                key={participant.identity}
-                participant={participant}
-                revision={revision}
-                isLocal={participant === room.localParticipant}
-              />
-            ))}
+            {people.map((participant) => {
+              const fullName = participant.name?.trim() || participant.identity;
+              return (
+                <CallTile
+                  key={participant.identity}
+                  participant={participant}
+                  revision={revision}
+                  isLocal={participant === room.localParticipant}
+                  label={nameLabels.get(fullName) ?? fullName}
+                />
+              );
+            })}
           </div>
         )}
 

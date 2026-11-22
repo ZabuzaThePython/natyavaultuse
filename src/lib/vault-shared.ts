@@ -44,17 +44,40 @@ export function toVaultItem(row: SharedMediaRow): VaultItem {
 /**
  * Everything on the shelf: the class's uploads plus this browser's own files.
  *
- * Files uploaded to Drive before the vault was shared have both a local row
- * and a shared one, so the local copy is dropped rather than shown twice.
+ * One file can be in both places — a Drive import is shared with the class and
+ * still sits in this browser's folders — so the two rows become one: the local
+ * copy keeps its folder and place, and the shared row says the class can see
+ * it (and supplies the title, so a rename shows up everywhere). A local file
+ * with no shared row stays "this device only".
  */
 export function vaultItems(
   local: readonly MediaItem[],
   rows: readonly SharedMediaRow[] | undefined,
 ): VaultItem[] {
   const shared = (rows ?? []).map(toVaultItem);
-  const seen = new Set(shared.map((item) => item.driveFileId));
-  return [
-    ...local.filter((item) => !(item.driveFileId && seen.has(item.driveFileId))),
-    ...shared,
-  ];
+  const byDriveFile = new Map<string, VaultItem>();
+  for (const item of shared) {
+    if (item.driveFileId) byDriveFile.set(item.driveFileId, item);
+  }
+
+  const merged: VaultItem[] = [];
+  for (const item of local) {
+    const sharedCopy = item.driveFileId
+      ? byDriveFile.get(item.driveFileId)
+      : undefined;
+    if (!sharedCopy) {
+      merged.push(item);
+      continue;
+    }
+    byDriveFile.delete(item.driveFileId!);
+    merged.push({
+      ...item,
+      title: sharedCopy.title,
+      sharedId: sharedCopy.sharedId,
+      mine: sharedCopy.mine,
+      canRemove: sharedCopy.canRemove,
+    });
+  }
+
+  return [...merged, ...byDriveFile.values()];
 }

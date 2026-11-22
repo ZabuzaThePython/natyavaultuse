@@ -133,6 +133,8 @@ export const recipients = internalQuery({
     }[] = [];
     for (const member of members) {
       if (member.userId === excludeUserId) continue;
+      // Somebody staff removed from the chat should not be notified about it.
+      if (member.removedAt !== undefined) continue;
       const rows = await ctx.db
         .query("pushSubscriptions")
         .withIndex("by_user", (q) => q.eq("userId", member.userId))

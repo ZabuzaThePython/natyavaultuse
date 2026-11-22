@@ -2,8 +2,9 @@ import { Password } from "@convex-dev/auth/providers/Password";
 import { internal } from "../_generated/api";
 
 // Accounts are identified by a username (not an email address):
-// 3-32 characters, letters/digits/dot/dash/underscore.
-const USERNAME_PATTERN = /^[A-Za-z0-9._-]{3,32}$/;
+// 3-32 characters, letters/digits/dot/dash/underscore, and @ so a handle can
+// look like one ("maya@natyavault").
+const USERNAME_PATTERN = /^[A-Za-z0-9._@-]{3,32}$/;
 
 /** Longest full name accepted, in characters. */
 const FULL_NAME_MAX = 80;
@@ -52,7 +53,7 @@ export const password = Password({
     const username = String(params.username ?? "").trim();
     if (!USERNAME_PATTERN.test(username)) {
       throw new Error(
-        "Username must be 3-32 characters: letters, numbers, dots, dashes or underscores.",
+        "Username must be 3-32 characters: letters, numbers, dots, dashes, underscores or @.",
       );
     }
     const normalized = username.toLowerCase();

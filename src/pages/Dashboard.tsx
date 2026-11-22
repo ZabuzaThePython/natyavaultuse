@@ -17,6 +17,7 @@ import {
   useVault,
   type MediaItem,
 } from "@/lib/vault";
+import { firstName as firstNameOf, shortNames } from "@/lib/display-name";
 import { cn } from "@/lib/utils";
 import { vaultItems } from "@/lib/vault-shared";
 import {
@@ -72,6 +73,10 @@ export default function Dashboard() {
         .sort((a, b) => b.date.localeCompare(a.date))
         .slice(0, 4),
     [visibleLogs],
+  );
+  const recentLogLabels = useMemo(
+    () => shortNames(recentLogs.map((log) => log.author)),
+    [recentLogs],
   );
 
   const weekAgo = new Date();
@@ -137,8 +142,12 @@ export default function Dashboard() {
       .sort((a, b) => b.minutes - a.minutes);
   }, [practice.entries]);
   const topMinutes = leaderboard[0]?.minutes ?? 0;
+  const leaderboardLabels = useMemo(
+    () => shortNames(leaderboard.map((row) => row.name)),
+    [leaderboard],
+  );
 
-  const firstName = (user?.name ?? "dancer").split(" ")[0];
+  const firstName = firstNameOf(user?.name ?? "dancer");
 
   const stats = [
     {
@@ -312,7 +321,9 @@ export default function Dashboard() {
                   </span>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center justify-between gap-2">
-                      <p className="truncate text-sm font-medium">{row.name}</p>
+                      <p className="truncate text-sm font-medium">
+                        {leaderboardLabels.get(row.name) ?? row.name}
+                      </p>
                       <span className="shrink-0 text-xs font-semibold tabular-nums">
                         {row.minutes} min
                       </span>
@@ -449,7 +460,8 @@ export default function Dashboard() {
                   </div>
                   <p className="mt-0.5 truncate text-xs text-muted-foreground">
                     {formatDate(log.date)}
-                    {isTeacher && ` · ${log.author}`}
+                    {isTeacher &&
+                      ` · ${recentLogLabels.get(log.author) ?? log.author}`}
                   </p>
                 </div>
               ))}

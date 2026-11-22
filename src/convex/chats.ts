@@ -87,6 +87,8 @@ export async function chatAccess(
   if (chat === null) return null;
   const seat = await membership(ctx, chatId, me._id);
   if (seat === null) return null;
+  // Staff took them out: no seat to speak of until they are added back.
+  if (seat.removedAt !== undefined) return null;
   // Deleted for themselves: gone from their list until somebody posts again.
   if (seat.hiddenAt !== undefined && chat.lastMessageAt <= seat.hiddenAt) {
     return null;
@@ -120,11 +122,25 @@ export async function mayOpenChat(
   return access !== null && !access.readOnly ? access.chat : null;
 }
 
+/** Everyone still in the chat — people staff removed are left out. */
 async function membersOf(ctx: QueryCtx | MutationCtx, chatId: Id<"chats">) {
-  return await ctx.db
+  const seats = await ctx.db
     .query("chatMembers")
     .withIndex("by_chat", (q) => q.eq("chatId", chatId))
     .collect();
+  return seats.filter((seat) => seat.removedAt === undefined);
+}
+
+/** Ids of every account in one class, by join code. */
+async function classRoster(
+  ctx: QueryCtx | MutationCtx,
+  classCode: string,
+): Promise<Set<Id<"users">>> {
+  const rows = await ctx.db
+    .query("classMembers")
+    .withIndex("by_code", (q) => q.eq("code", classCode))
+    .collect();
+  return new Set(rows.map((row) => row.userId));
 }
 
 async function readMarker(
@@ -198,13 +214,18 @@ async function join(
  * student never sees the school's account list.
  */
 export const people = query({
-  args: {},
-  handler: async (ctx) => {
+  args: { chatId: v.optional(v.id("chats")) },
+  handler: async (ctx, { chatId }) => {
     const me = await viewer(ctx);
     if (me === null) return { ok: false, groups: [] };
     if (!(await maySeeEveryClass(ctx, me._id))) {
       return { ok: false, groups: [] };
     }
+
+    // Opened from a class room: offer only the people that room would accept,
+    // so the picker never proposes an account that addMembers has to skip.
+    const classCode = chatId ? (await ctx.db.get(chatId))?.classCode : undefined;
+    const inRoomClass = classCode ? await classRoster(ctx, classCode) : null;
 
     const users = await ctx.db.query("users").collect();
     const classes = await ctx.db.query("classes").collect();
@@ -234,6 +255,9 @@ export const people = query({
         user.email === "admin" ||
         user.classRole === "teacher" ||
         className.has(user._id);
+      if (inRoomClass !== null && !isStaff && !inRoomClass.has(user._id)) {
+        continue;
+      }
       const entry = {
         id: user._id,
         name,
@@ -386,6 +410,8 @@ async function ensureRoom(
     if (chat === null) return null;
   }
 
+  // A seat staff removed is still a row, so this never quietly adds someone
+  // back: only an account with no seat at all is joined here.
   if ((await membership(ctx, chat._id, me._id)) === null) {
     await join(ctx, chat._id, me);
   }
@@ -538,6 +564,139 @@ export const createChat = mutation({
     for (const user of others) await join(ctx, chatId, user);
 
     return { ok: true, chatId, error: null, reused: false };
+  },
+});
+
+/**
+ * Add people to a chat. Staff only, the same rule as starting one.
+ *
+ * A class room belongs to one class, so only that class's students — and
+ * staff, who see every class — are added. Anyone else would get a frozen,
+ * read-only view of it (see chatAccess), so they are counted as skipped
+ * instead. A private conversation is not extendable: start a group instead.
+ */
+export const addMembers = mutation({
+  args: { chatId: v.id("chats"), memberIds: v.array(v.id("users")) },
+  handler: async (
+    ctx,
+    { chatId, memberIds },
+  ): Promise<{
+    ok: boolean;
+    added: number;
+    skipped: number;
+    error: string | null;
+  }> => {
+    const me = await viewer(ctx);
+    if (me === null) {
+      return { ok: false, added: 0, skipped: 0, error: "Sign in first." };
+    }
+    if (!(await maySeeEveryClass(ctx, me._id))) {
+      return {
+        ok: false,
+        added: 0,
+        skipped: 0,
+        error: "Only a teacher or the admin can add people to a chat.",
+      };
+    }
+    // Staff see every class, so a room they can open is never read-only.
+    const access = await chatAccess(ctx, chatId, me);
+    if (access === null) {
+      return { ok: false, added: 0, skipped: 0, error: "You are not in this chat." };
+    }
+    const chat = access.chat;
+    if (chat.kind === "solo") {
+      return {
+        ok: false,
+        added: 0,
+        skipped: 0,
+        error: "This is a private conversation — start a group chat instead.",
+      };
+    }
+
+    const classCode = chat.classCode;
+    const inClass = classCode ? await classRoster(ctx, classCode) : null;
+
+    let added = 0;
+    let skipped = 0;
+    for (const id of new Set(memberIds)) {
+      const user = await ctx.db.get(id);
+      if (user === null) continue;
+      // Checked before the seat so somebody who left the class cannot be
+      // restored into a room they would only see frozen.
+      if (
+        inClass !== null &&
+        !inClass.has(user._id) &&
+        !(await maySeeEveryClass(ctx, user._id))
+      ) {
+        skipped++;
+        continue;
+      }
+      const seat = await membership(ctx, chatId, user._id);
+      if (seat === null) {
+        await join(ctx, chatId, user);
+        added++;
+      } else if (seat.removedAt !== undefined) {
+        // Somebody staff took out comes back — including a chat they had
+        // deleted for themselves, so the room really reappears for them.
+        await ctx.db.patch(seat._id, {
+          removedAt: undefined,
+          hiddenAt: undefined,
+          name: displayName(user),
+          joinedAt: Date.now(),
+        });
+        added++;
+      }
+    }
+
+    return { ok: true, added, skipped, error: null };
+  },
+});
+
+/**
+ * Take somebody out of a chat. Staff only, group chats only, and never
+ * yourself — leaving a chat of your own is what Delete chat is for.
+ */
+export const removeMember = mutation({
+  args: { chatId: v.id("chats"), userId: v.id("users") },
+  handler: async (
+    ctx,
+    { chatId, userId },
+  ): Promise<{ ok: boolean; error: string | null }> => {
+    const me = await viewer(ctx);
+    if (me === null) return { ok: false, error: "Sign in first." };
+    if (!(await maySeeEveryClass(ctx, me._id))) {
+      return {
+        ok: false,
+        error: "Only a teacher or the admin can remove people from a chat.",
+      };
+    }
+    const access = await chatAccess(ctx, chatId, me);
+    if (access === null) {
+      return { ok: false, error: "You are not in this chat." };
+    }
+    if (access.chat.kind === "solo") {
+      return {
+        ok: false,
+        error:
+          "A private conversation has just the two of you — delete it from your list instead.",
+      };
+    }
+    if (userId === me._id) {
+      return {
+        ok: false,
+        error: "To leave a chat yourself, delete it from your list.",
+      };
+    }
+
+    const seat = await membership(ctx, chatId, userId);
+    if (seat === null || seat.removedAt !== undefined) {
+      return { ok: false, error: "They're not in this chat." };
+    }
+    // Stamped rather than deleted, so the class room does not add them back
+    // the next time they open Messages. The read marker stays, so adding them
+    // back picks up where they left off.
+    await ctx.db.patch(seat._id, { removedAt: Date.now() });
+    return { ok: true, error: null };
   },
 });
 
