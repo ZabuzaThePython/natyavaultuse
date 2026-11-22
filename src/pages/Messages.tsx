@@ -53,7 +53,7 @@ import {
   shortNames,
 } from "@/lib/display-name";
 import { useViewerIsStaff } from "@/lib/classes";
-import { useActiveStudio } from "@/lib/studios";
+import { useActiveStudio, useStudioName } from "@/lib/studios";
 import { timeAgo, useVault } from "@/lib/vault";
 import { useSearchParams } from "react-router";
 import {
@@ -1418,6 +1418,8 @@ export default function Messages() {
   // The platform admin looks at one studio at a time: the picker in the shell
   // decides whose class rooms and people are in this list.
   const { studioId: activeStudioId } = useActiveStudio();
+  // The studio name the teacher gave, shown above the title.
+  const studioName = useStudioName();
   // Ships off: the admin turns GIFs on from the Admin area.
   const gifsEnabled = useQuery(api.admin.gifsEnabled) === true;
 
@@ -1679,7 +1681,10 @@ export default function Messages() {
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-4">
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
+          <p className="text-sm font-medium text-muted-foreground">
+            {studioName ?? "Your studio"}
+          </p>
+          <h1 className="mt-1 text-2xl font-bold tracking-tight sm:text-3xl">
             Messages
           </h1>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">

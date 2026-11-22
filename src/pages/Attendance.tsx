@@ -28,6 +28,7 @@ import { Label } from "@/components/ui/label";
 import { useAuth } from "@/hooks/use-auth";
 import { api } from "@/convex/_generated/api";
 import { useClassAttendance, useClassSheet } from "@/lib/classes";
+import { useStudioName } from "@/lib/studios";
 import {
   attendanceSheetNames,
   attendanceSummary,
@@ -138,6 +139,8 @@ export default function Attendance() {
   const { user } = useAuth();
   const vault = useVault();
   const currentName = user?.name ?? "You";
+  // The studio name the teacher gave, shown above the title.
+  const studioName = useStudioName();
   // Which role this account is comes from the deployment (see `sheet` below),
   // because the vault's role is per browser and would call a student a teacher
   // on a device a teacher signed in on.
@@ -442,7 +445,7 @@ export default function Attendance() {
       <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="text-sm font-medium text-muted-foreground">
-            {isTeacher ? "Class roll" : "Class attendance"}
+            {studioName ?? (isTeacher ? "Class roll" : "Class attendance")}
           </p>
           <h1 className="mt-1 text-2xl font-bold tracking-tight sm:text-3xl">
             Attendance

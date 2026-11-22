@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { api } from "@/convex/_generated/api";
 import { useViewerIsStaff } from "@/lib/classes";
 import { useClassPractice, type PracticeEntryView } from "@/lib/practice";
+import { useStudioName } from "@/lib/studios";
 import { shortNames } from "@/lib/display-name";
 import { formatDate, useVault } from "@/lib/vault";
 import { useMutation } from "convex/react";
@@ -43,6 +44,8 @@ function cutoffFor(range: Range): string | null {
 
 export default function PracticeLog() {
   const vault = useVault();
+  // The studio name the teacher gave, shown above the title.
+  const studioName = useStudioName();
   const enabled = vault.practiceLogEnabled;
   // Sessions come from the deployment, so the whole class shares one log: a
   // teacher sees every student's practice, and none of it is lost when a
@@ -165,7 +168,10 @@ export default function PracticeLog() {
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
       <header>
-        <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
+        <p className="text-sm font-medium text-muted-foreground">
+          {studioName ?? "Your studio"}
+        </p>
+        <h1 className="mt-1 text-2xl font-bold tracking-tight sm:text-3xl">
           Practice Log
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
