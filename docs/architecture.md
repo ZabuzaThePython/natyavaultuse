@@ -71,7 +71,7 @@ expires. Blue is the app and its database, purple is auth, yellow is an outside
 service, grey is a browser or edge runtime.
 
 <!-- BEGIN GENERATED COUNTS -->
-The deployment has **27 tables** — 21 defined in
+The deployment has **29 tables** — 23 defined in
 `src/convex/schema.ts` (including `users`) and 6 more that
 Convex Auth adds.
 
@@ -99,9 +99,9 @@ Every function the deployment exposes, and every HTTP route, read out of
 `src/convex/`.
 
 <!-- BEGIN GENERATED BACKEND -->
-**81 public functions**, 32
-internal helpers — 27 queries, 37 mutations and
-17 actions across 17 modules in `src/convex/`.
+**87 public functions**, 33
+internal helpers — 29 queries, 41 mutations and
+17 actions across 19 modules in `src/convex/`.
 
 | module | queries | mutations | actions | internal |
 | --- | --- | --- | --- | --- |
@@ -113,11 +113,13 @@ internal helpers — 27 queries, 37 mutations and
 | `classes.ts` | `validateCode`, `myClasses`, `allClasses`, `viewerRole`, `classSheet` | `createClass`, `deleteClass`, `joinClass` | — | `joinOnSignUp` |
 | `drive.ts` | `status`, `files` | — | `authUrl`, `exchange`, `disconnect`, `startUpload`, `finishUpload`, `cancelUpload`, `fileUrl`, `disconnectVault`, `remove`, `browse`, `listSubtree` | `getTokens`, `saveTokens`, `createState`, `consumeState`, `peekState`, `getVaultTokens`, `saveVaultTokens`, `clearVaultTokens`, `viewerManagesClasses`, `forgetTokens`, `clearTokens`, `listFiles`, `recordFile`, `forgetFile`, `createGrant`, `grantFor`, `tokenForGrant`, `removeForOwner` |
 | `gifs.ts` | — | — | `search` | — |
+| `migrations.ts` | — | `studiosBackfill` | — | — |
 | `names.ts` | `needsFullName` | `setFullName` | — | — |
 | `passwords.ts` | — | — | — | `record` |
 | `practice.ts` | `classPractice` | `addEntry`, `removeEntry`, `importLocal` | — | — |
 | `push.ts` | `publicKey`, `devices` | `subscribe`, `unsubscribe` | — | `recipients`, `removeDead` |
 | `pushSend.ts` | — | — | — | `send` |
+| `studios.ts` | `myStudio`, `listStudios` | `createStudio`, `joinStudio`, `renameStudio` | — | `setFolderId` |
 | `tour.ts` | `pending` | `finish` | — | — |
 | `usernames.ts` | `isTaken` | — | — | — |
 | `users.ts` | `currentUser` | — | — | — |

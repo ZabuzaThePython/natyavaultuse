@@ -8,7 +8,8 @@ import {
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
-import { findClass, maySeeEveryClass } from "./classes";
+import { findClass } from "./classes";
+import { classAccess } from "./studios";
 
 /**
  * The practice log, per class, on the deployment.
@@ -49,12 +50,8 @@ async function usableClass(
 ) {
   const row = await findClass(ctx, code);
   if (row === null) return null;
-  if (await maySeeEveryClass(ctx, userId)) return row;
-  const membership = await ctx.db
-    .query("classMembers")
-    .withIndex("by_user", (q) => q.eq("userId", userId))
-    .first();
-  return membership !== null && membership.code === row.code ? row : null;
+  const access = await classAccess(ctx, userId, row);
+  return access.read ? row : null;
 }
 
 /**
@@ -86,16 +83,9 @@ export const classPractice = query({
 
     const row = await findClass(ctx, code);
     if (row === null) return closed;
-    const viewerIsStaff = await maySeeEveryClass(ctx, userId);
-    if (!viewerIsStaff) {
-      const membership = await ctx.db
-        .query("classMembers")
-        .withIndex("by_user", (q) => q.eq("userId", userId))
-        .first();
-      if (membership === null || membership.code !== row.code) {
-        return { ...closed, viewerIsStaff };
-      }
-    }
+    const access = await classAccess(ctx, userId, row);
+    const viewerIsStaff = access.staff;
+    if (!access.read) return closed;
 
     const from = since ? cleanDate(since) : null;
     const rows = from
@@ -202,13 +192,11 @@ export const removeEntry = mutation({
     // Already gone — nothing to report to a reader who wanted it gone.
     if (entry === null) return { ok: true, error: null };
 
-    if ((await usableClass(ctx, userId, entry.code)) === null) {
+    const classRow = await usableClass(ctx, userId, entry.code);
+    if (classRow === null) {
       return { ok: false, error: "You're not in this class." };
     }
-    if (
-      entry.authorId !== userId &&
-      !(await maySeeEveryClass(ctx, userId))
-    ) {
+    if (entry.authorId !== userId && !(await classAccess(ctx, userId, classRow)).staff) {
       return { ok: false, error: "You can only delete your own sessions." };
     }
 

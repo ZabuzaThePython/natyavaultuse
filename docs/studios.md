@@ -5,8 +5,14 @@ sees every class, one class-archive Drive. This document designs the layer above
 it — a **studio** — so several schools can share the deployment and see nothing
 of each other.
 
-Status: design, not built. Phase 1 is the schema and the scoping rule; the
-phases at the end say what each one touches.
+Status: **phase 1 is built** — the schema, `classAccess` at every call site, the
+admin-gated backfill and the admin's studio picker. Phases 2–5 are designed and
+not built; the table at the end says what each one touches.
+
+To turn it on for an existing deployment: deploy the code, sign in as the admin,
+and press **Set up studios** where the school picker will be (bottom of the
+sidebar's Studio group). Everything lands in one studio that adopts the
+`NatyaVault` folder already in the archive Drive.
 
 ## The tenancy boundary
 
@@ -331,7 +337,7 @@ Re-running is safe: steps skip rows that already carry the field.
 
 | # | Scope | Files | Risk |
 |---|---|---|---|
-| 1 | Schema, `scopeFor` / `classAccess`, all call sites, backfill | `schema.ts`, new `studios.ts`, `classes.ts`, `practice.ts`, `attendance.ts`, `vault.ts`, `chats.ts`, `drive.ts`, new `migrations.ts` | the security change — done in one commit, reviewed as a whole |
+| 1 | **Built.** Schema, `scopeFor` / `classAccess`, all call sites, backfill, admin studio picker | `schema.ts`, new `codes.ts`, `studios.ts`, `migrations.ts`, `classes.ts`, `practice.ts`, `attendance.ts`, `vault.ts`, `chats.ts`, `drive.ts`, `lib/studios.ts`, `AppShell.tsx` | the security change — one commit, reviewed as a whole |
 | 2 | Sign-up: teacher studio code / new studio; student code → studio | `auth/password.ts`, `pages/Auth.tsx` | touches account creation, so it needs a fresh-account test |
 | 3 | Studio page, teacher management, class list per studio | `pages/Studio.tsx`, `main.tsx`, `components/AppShell.tsx`, `studios.ts` | UI only |
 | 4 | Per-studio **folder** in the shared archive; `startUpload` takes the class code; `mediaStore` seam so R2 is one new module | `drive.ts`, new `studios.ts` helper, `schema.ts`, `pages/MediaVault.tsx` | low — one folder per studio, existing archive adopted as-is |

@@ -2,7 +2,8 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { findClass, maySeeEveryClass } from "./classes";
+import { findClass } from "./classes";
+import { classAccess, scopeFor, studioMemberIds } from "./studios";
 import { isGiphyUrl } from "./gifs";
 import {
   mutation,
@@ -78,6 +79,27 @@ export interface ChatAccess {
  * Teachers and the admin are exempt from the class rule: seeing every class
  * room is the point of the teacher view.
  */
+/**
+ * Whether this account holds staff powers in a chat: it staffs the chat's class
+ * (its studio's teachers and owners), or — for a chat with no class, like a
+ * group chat — it is staff of its own studio. The platform admin always does.
+ *
+ * This replaces the old deployment-wide "sees every class": a teacher of one
+ * studio must not moderate another studio's rooms.
+ */
+async function staffForChat(
+  ctx: QueryCtx | MutationCtx,
+  userId: Id<"users">,
+  classCode: string | null,
+): Promise<boolean> {
+  if (classCode) {
+    const row = await findClass(ctx, classCode);
+    if (row !== null) return (await classAccess(ctx, userId, row)).staff;
+  }
+  const scope = await scopeFor(ctx, userId);
+  return scope !== null && scope.kind !== "student";
+}
+
 export async function chatAccess(
   ctx: QueryCtx | MutationCtx,
   chatId: Id<"chats">,
@@ -94,7 +116,12 @@ export async function chatAccess(
     return null;
   }
   if (!chat.classCode) return { chat, readOnly: false, cutoff: 0 };
-  if (await maySeeEveryClass(ctx, me._id)) return { chat, readOnly: false, cutoff: 0 };
+  // Staff of that class's studio has the room in full; a teacher of another
+  // studio does not.
+  const classRow = await findClass(ctx, chat.classCode);
+  if (classRow !== null && (await classAccess(ctx, me._id, classRow)).staff) {
+    return { chat, readOnly: false, cutoff: 0 };
+  }
 
   const joined = await ctx.db
     .query("classMembers")
@@ -218,7 +245,8 @@ export const people = query({
   handler: async (ctx, { chatId }) => {
     const me = await viewer(ctx);
     if (me === null) return { ok: false, groups: [] };
-    if (!(await maySeeEveryClass(ctx, me._id))) {
+    const scope = await scopeFor(ctx, me._id);
+    if (scope === null || scope.kind === "student") {
       return { ok: false, groups: [] };
     }
 
@@ -227,9 +255,35 @@ export const people = query({
     const classCode = chatId ? (await ctx.db.get(chatId))?.classCode : undefined;
     const inRoomClass = classCode ? await classRoster(ctx, classCode) : null;
 
+    // A studio's staff chats with its own people; the platform admin with
+    // everyone.
+    const allowed =
+      scope.kind === "platform"
+        ? null
+        : await studioMemberIds(ctx, scope.studioId);
+
     const users = await ctx.db.query("users").collect();
-    const classes = await ctx.db.query("classes").collect();
+    const classes =
+      scope.kind === "platform"
+        ? await ctx.db.query("classes").collect()
+        : await ctx.db
+            .query("classes")
+            .withIndex("by_studio", (q) => q.eq("studioId", scope.studioId))
+            .collect();
     const memberships = await ctx.db.query("classMembers").collect();
+
+    // Who counts as staff here: this studio's teachers and class owners.
+    const staffIds = new Set<Id<"users">>();
+    if (scope.kind === "studio") {
+      const rows = await ctx.db
+        .query("studioMembers")
+        .withIndex("by_studio", (q) => q.eq("studioId", scope.studioId))
+        .collect();
+      for (const row of rows) {
+        if (row.role !== "student") staffIds.add(row.userId);
+      }
+      for (const row of classes) staffIds.add(row.ownerId);
+    }
 
     const className = new Map<string, string>();
     for (const row of classes) {
@@ -250,11 +304,14 @@ export const people = query({
       if (user._id === me._id) continue;
       const name = displayName(user);
       if (!name) continue;
+      if (allowed !== null && !allowed.has(user._id)) continue;
       const isStaff =
-        user.role === "admin" ||
-        user.email === "admin" ||
-        user.classRole === "teacher" ||
-        className.has(user._id);
+        allowed === null
+          ? user.role === "admin" ||
+            user.email === "admin" ||
+            user.classRole === "teacher" ||
+            className.has(user._id)
+          : staffIds.has(user._id);
       if (inRoomClass !== null && !isStaff && !inRoomClass.has(user._id)) {
         continue;
       }
@@ -431,12 +488,8 @@ export const ensureClassChat = mutation({
     const row = await findClass(ctx, code);
     if (row === null) return null;
 
-    const staff = await maySeeEveryClass(ctx, me._id);
-    const joined = await ctx.db
-      .query("classMembers")
-      .withIndex("by_user", (q) => q.eq("userId", me._id))
-      .first();
-    if (!staff && joined?.code !== row.code) return null;
+    const access = await classAccess(ctx, me._id, row);
+    if (!access.read) return null;
 
     return await ensureRoom(ctx, row, me);
   },
@@ -454,9 +507,20 @@ export const ensureAllClassChats = mutation({
   handler: async (ctx): Promise<{ ok: boolean; rooms: number }> => {
     const me = await viewer(ctx);
     if (me === null) return { ok: false, rooms: 0 };
-    if (!(await maySeeEveryClass(ctx, me._id))) return { ok: false, rooms: 0 };
+    const scope = await scopeFor(ctx, me._id);
+    if (scope === null || scope.kind === "student") {
+      return { ok: false, rooms: 0 };
+    }
 
-    const classes = await ctx.db.query("classes").collect();
+    // Only this studio's rooms: every class in the deployment would put another
+    // school's rooms in this account's chat list.
+    const classes =
+      scope.kind === "platform"
+        ? await ctx.db.query("classes").collect()
+        : await ctx.db
+            .query("classes")
+            .withIndex("by_studio", (q) => q.eq("studioId", scope.studioId))
+            .collect();
     let rooms = 0;
     for (const row of classes) {
       if ((await ensureRoom(ctx, row, me)) !== null) rooms++;
@@ -488,7 +552,8 @@ export const createChat = mutation({
     if (me === null) {
       return { ok: false, chatId: null, error: "Sign in first.", reused: false };
     }
-    if (!(await maySeeEveryClass(ctx, me._id))) {
+    const scope = await scopeFor(ctx, me._id);
+    if (scope === null || scope.kind === "student") {
       return {
         ok: false,
         chatId: null,
@@ -521,6 +586,20 @@ export const createChat = mutation({
         };
       }
       others.push(user);
+    }
+
+    // A studio's staff may only start chats with its own people: another
+    // school's students must not end up in this conversation.
+    if (scope.kind === "studio") {
+      const allowed = await studioMemberIds(ctx, scope.studioId);
+      if (others.some((user) => !allowed.has(user._id))) {
+        return {
+          ok: false,
+          chatId: null,
+          error: "Those people are not in your studio.",
+          reused: false,
+        };
+      }
     }
 
     const names = others.map((user) => displayName(user));
@@ -590,7 +669,8 @@ export const addMembers = mutation({
     if (me === null) {
       return { ok: false, added: 0, skipped: 0, error: "Sign in first." };
     }
-    if (!(await maySeeEveryClass(ctx, me._id))) {
+    const scope = await scopeFor(ctx, me._id);
+    if (scope === null || scope.kind === "student") {
       return {
         ok: false,
         added: 0,
@@ -598,6 +678,11 @@ export const addMembers = mutation({
         error: "Only a teacher or the admin can add people to a chat.",
       };
     }
+    // A studio's staff adds its own people only.
+    const allowed =
+      scope.kind === "studio"
+        ? await studioMemberIds(ctx, scope.studioId)
+        : null;
     // Staff see every class, so a room they can open is never read-only.
     const access = await chatAccess(ctx, chatId, me);
     if (access === null) {
@@ -621,12 +706,16 @@ export const addMembers = mutation({
     for (const id of new Set(memberIds)) {
       const user = await ctx.db.get(id);
       if (user === null) continue;
+      if (allowed !== null && !allowed.has(user._id)) {
+        skipped++;
+        continue;
+      }
       // Checked before the seat so somebody who left the class cannot be
       // restored into a room they would only see frozen.
       if (
         inClass !== null &&
         !inClass.has(user._id) &&
-        !(await maySeeEveryClass(ctx, user._id))
+        !(await staffForChat(ctx, user._id, classCode ?? null))
       ) {
         skipped++;
         continue;
@@ -664,7 +753,8 @@ export const removeMember = mutation({
   ): Promise<{ ok: boolean; error: string | null }> => {
     const me = await viewer(ctx);
     if (me === null) return { ok: false, error: "Sign in first." };
-    if (!(await maySeeEveryClass(ctx, me._id))) {
+    const target = await ctx.db.get(chatId);
+    if (!(await staffForChat(ctx, me._id, target?.classCode ?? null))) {
       return {
         ok: false,
         error: "Only a teacher or the admin can remove people from a chat.",
@@ -825,7 +915,7 @@ export const remove = mutation({
       return { ok: false, error: "You are not in this chat.", global: false };
     }
 
-    if (!(await maySeeEveryClass(ctx, me._id))) {
+    if (!(await staffForChat(ctx, me._id, access.chat.classCode ?? null))) {
       const seat = await membership(ctx, chatId, me._id);
       if (seat === null) {
         return { ok: false, error: "You are not in this chat.", global: false };
@@ -1006,7 +1096,7 @@ export const send = mutation({
     }
 
     const now = Date.now();
-    const isStaff = await maySeeEveryClass(ctx, me._id);
+    const isStaff = await staffForChat(ctx, me._id, chat.classCode ?? null);
     // What the chat list and the notification show for this message.
     const preview = trimmed
       ? trimmed.slice(0, 140)
@@ -1099,7 +1189,10 @@ export const setPinned = mutation({
     if ((await membership(ctx, message.chatId, me._id)) === null) {
       return { ok: false };
     }
-    if (!(await maySeeEveryClass(ctx, me._id))) return { ok: false };
+    const chat = await ctx.db.get(message.chatId);
+    if (!(await staffForChat(ctx, me._id, chat?.classCode ?? null))) {
+      return { ok: false };
+    }
     await ctx.db.patch(messageId, { pinned });
     return { ok: true };
   },
@@ -1119,7 +1212,8 @@ export const removeMessage = mutation({
     if ((await membership(ctx, message.chatId, me._id)) === null) {
       return { ok: false };
     }
-    const staff = await maySeeEveryClass(ctx, me._id);
+    const messageChat = await ctx.db.get(message.chatId);
+    const staff = await staffForChat(ctx, me._id, messageChat?.classCode ?? null);
     const mine = message.authorId === me._id;
     if (!mine && !staff) return { ok: false };
 

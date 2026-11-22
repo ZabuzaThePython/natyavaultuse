@@ -9,7 +9,21 @@ import {
   query,
 } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
-import { maySeeEveryClass } from "./classes";
+import { scopeFor } from "./studios";
+
+type DbCtx = Parameters<typeof scopeFor>[0];
+
+/**
+ * Whether this account manages classes, and with them the class archive.
+ * Studio staff do; students and signed-out callers do not.
+ */
+async function managesClasses(
+  ctx: DbCtx,
+  userId: Id<"users">,
+): Promise<boolean> {
+  const scope = await scopeFor(ctx, userId);
+  return scope !== null && scope.kind !== "student";
+}
 
 /**
  * Google Drive integration.
@@ -248,7 +262,7 @@ export const clearVaultTokens = internalMutation({
  */
 export const viewerManagesClasses = internalQuery({
   args: { userId: v.id("users") },
-  handler: async (ctx, { userId }) => await maySeeEveryClass(ctx, userId),
+  handler: async (ctx, { userId }) => await managesClasses(ctx, userId),
 });
 
 export const forgetTokens = internalMutation({
@@ -337,7 +351,8 @@ export const status = query({
       email: null as string | null,
       vaultConnected: vault !== null,
       vaultEmail: vault?.email ?? null,
-      canManageVault: userId === null ? false : await maySeeEveryClass(ctx, userId),
+      canManageVault:
+        userId === null ? false : await managesClasses(ctx, userId),
     };
     if (userId === null) return base;
 

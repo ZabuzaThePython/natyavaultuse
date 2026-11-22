@@ -72,6 +72,12 @@ const DOMAINS = [
     tables: ["savedPasswords", "adminUnlocks", "settings"],
   },
   {
+    id: "studios",
+    title: "Studios (tenancy)",
+    blurb: "The school above a class. A studio owns its teachers, its classes and its folder in the archive Drive, and every account belongs to one — except the platform admin, who is the one account that crosses them.",
+    tables: ["studios", "studioMembers"],
+  },
+  {
     id: "classes",
     title: "Classes and people",
     blurb: "A class is created by a teacher and joined by students with its six-character code; `classStudents` holds names a teacher added by hand.",

@@ -7,7 +7,8 @@ import {
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
-import { findClass, maySeeEveryClass, sheetPeople } from "./classes";
+import { findClass, sheetPeople } from "./classes";
+import { classAccess } from "./studios";
 
 /**
  * Attendance, per class, on the deployment.
@@ -76,15 +77,12 @@ async function resolveClass(
   const row = await findClass(ctx, rawCode);
   if (row === null) return null;
 
-  const seesEveryClass = await maySeeEveryClass(ctx, userId);
+  // The one studio-scoped rule: staff of this class's studio, or a student who
+  // joined it. It replaces the old deployment-wide "sees every class".
+  const access = await classAccess(ctx, userId, row);
+  if (!access.read) return null;
+  const seesEveryClass = access.staff;
   const isStaff = row.ownerId === userId || seesEveryClass;
-  if (!isStaff) {
-    const member = await ctx.db
-      .query("classMembers")
-      .withIndex("by_user", (q) => q.eq("userId", userId))
-      .first();
-    if (member === null || member.code !== row.code) return null;
-  }
 
   const members = await ctx.db
     .query("classMembers")

@@ -11,8 +11,8 @@ import {
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
-import { findClass, maySeeEveryClass } from "./classes";
-import { accessTokenFor } from "./drive";
+import { findClass } from "./classes";
+import { classAccess } from "./studios";
 
 /**
  * The class media vault, on the deployment.
@@ -46,12 +46,8 @@ async function usableClass(
 ) {
   const row = await findClass(ctx, rawCode);
   if (row === null) return null;
-  if (await maySeeEveryClass(ctx, userId)) return row;
-  const membership = await ctx.db
-    .query("classMembers")
-    .withIndex("by_user", (q) => q.eq("userId", userId))
-    .first();
-  return membership !== null && membership.code === row.code ? row : null;
+  const access = await classAccess(ctx, userId, row);
+  return access.read ? row : null;
 }
 
 /** A `YYYY-MM-DD` day, or today when the value is unusable. */
@@ -75,10 +71,9 @@ export const classMedia = query({
     const row = await findClass(ctx, code);
     if (row === null) return { ok: false, items: [] as never[] };
 
-    const staff = await maySeeEveryClass(ctx, userId);
-    if (!staff && (await usableClass(ctx, userId, row.code)) === null) {
-      return { ok: false, items: [] as never[] };
-    }
+    const access = await classAccess(ctx, userId, row);
+    if (!access.read) return { ok: false, items: [] as never[] };
+    const staff = access.staff;
 
     const rows = await ctx.db
       .query("vaultMedia")
@@ -172,10 +167,12 @@ export const renameShared = mutation({
     const row = await ctx.db.get(id);
     if (row === null) return { ok: false, error: "That file is already gone." };
 
-    if ((await usableClass(ctx, userId, row.code)) === null) {
+    const classRow = await usableClass(ctx, userId, row.code);
+    if (classRow === null) {
       return { ok: false, error: "You're not in this class." };
     }
-    if (row.uploaderId !== userId && !(await maySeeEveryClass(ctx, userId))) {
+    const access = await classAccess(ctx, userId, classRow);
+    if (row.uploaderId !== userId && !access.staff) {
       return { ok: false, error: "Only the uploader can rename this file." };
     }
 
@@ -193,8 +190,10 @@ export const removable = internalQuery({
   handler: async (ctx, { id, userId }) => {
     const row = await ctx.db.get(id);
     if (row === null) return null;
-    if ((await usableClass(ctx, userId, row.code)) === null) return null;
-    if (row.uploaderId !== userId && !(await maySeeEveryClass(ctx, userId))) {
+    const classRow = await usableClass(ctx, userId, row.code);
+    if (classRow === null) return null;
+    const access = await classAccess(ctx, userId, classRow);
+    if (row.uploaderId !== userId && !access.staff) {
       return null;
     }
     return row;

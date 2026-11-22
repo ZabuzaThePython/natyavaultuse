@@ -249,11 +249,48 @@
   }</pre>
   </section>
 
+  <section data-id="studios">
+    <div class="head">
+      <div>
+        <h2>Studios (tenancy)</h2>
+        <p class="caption">The school above a class. A studio owns its teachers, its classes and its folder in the archive Drive, and every account belongs to one — except the platform admin, who is the one account that crosses them. References outside this model: `users`.</p>
+      </div>
+      <span class="actions">
+        <button class="download" type="button" data-format="png">Download PNG</button>
+        <button class="download" type="button" data-format="svg">Download SVG</button>
+      </span>
+    </div>
+    <pre class="mermaid">erDiagram
+  studios {
+    id _id PK
+    number _creationTime
+    string code
+    string name
+    id ownerId FK "-&gt; users"
+    string ownerName
+    string folderName
+    string driveFolderId "optional"
+    bool joinOpen
+    number suspendedAt "optional"
+    number createdAt
+  }
+  studioMembers {
+    id _id PK
+    number _creationTime
+    id studioId FK "-&gt; studios"
+    id userId FK "-&gt; users"
+    enum role "owner, teacher, student"
+    string name
+    number joinedAt
+  }
+  studios ||--o{ studioMembers : "studioId"</pre>
+  </section>
+
   <section data-id="classes">
     <div class="head">
       <div>
         <h2>Classes and people</h2>
-        <p class="caption">A class is created by a teacher and joined by students with its six-character code; `classStudents` holds names a teacher added by hand. References outside this model: `users`.</p>
+        <p class="caption">A class is created by a teacher and joined by students with its six-character code; `classStudents` holds names a teacher added by hand. References outside this model: `studios`, `users`.</p>
       </div>
       <span class="actions">
         <button class="download" type="button" data-format="png">Download PNG</button>
@@ -268,6 +305,7 @@
     string name
     id ownerId FK "-&gt; users"
     string ownerName
+    id studioId FK "-&gt; studios; optional"
     number createdAt
   }
   classMembers {

@@ -64,7 +64,7 @@ Every table the deployment defines, with its fields and references, generated
 from the schema. The models are split by domain so each one stays readable.
 
 <!-- BEGIN GENERATED DATA MODEL -->
-**27 tables** — 21 defined in `src/convex/schema.ts` (including
+**29 tables** — 23 defined in `src/convex/schema.ts` (including
 `users`) plus 6 from Convex Auth's `authTables`.
 
 They are split into domain models so each diagram stays readable. Every
@@ -194,9 +194,49 @@ erDiagram
 
 </details>
 
+### Studios (tenancy)
+
+The school above a class. A studio owns its teachers, its classes and its folder in the archive Drive, and every account belongs to one — except the platform admin, who is the one account that crosses them. References outside this model: `users`.
+
+<img src="diagrams/studios.png" alt="Entity relationship diagram: studios (tenancy)" />
+
+Vector copy: [studios.svg](diagrams/studios.svg).
+
+<details>
+<summary>Diagram source (Mermaid)</summary>
+
+```mermaid
+erDiagram
+  studios {
+    id _id PK
+    number _creationTime
+    string code
+    string name
+    id ownerId FK "-> users"
+    string ownerName
+    string folderName
+    string driveFolderId "optional"
+    bool joinOpen
+    number suspendedAt "optional"
+    number createdAt
+  }
+  studioMembers {
+    id _id PK
+    number _creationTime
+    id studioId FK "-> studios"
+    id userId FK "-> users"
+    enum role "owner, teacher, student"
+    string name
+    number joinedAt
+  }
+  studios ||--o{ studioMembers : "studioId"
+```
+
+</details>
+
 ### Classes and people
 
-A class is created by a teacher and joined by students with its six-character code; `classStudents` holds names a teacher added by hand. References outside this model: `users`.
+A class is created by a teacher and joined by students with its six-character code; `classStudents` holds names a teacher added by hand. References outside this model: `studios`, `users`.
 
 <img src="diagrams/classes.png" alt="Entity relationship diagram: classes and people" />
 
@@ -214,6 +254,7 @@ erDiagram
     string name
     id ownerId FK "-> users"
     string ownerName
+    id studioId FK "-> studios; optional"
     number createdAt
   }
   classMembers {
@@ -458,6 +499,8 @@ erDiagram
 | `authVerificationCodes` | `accountId(accountId)`, `code(code)` |
 | `authVerifiers` | `signature(signature)` |
 | `authRateLimits` | `identifier(identifier)` |
+| `studios` | `by_code(code)`, `by_owner(ownerId)`, `by_folder(folderName)` |
+| `studioMembers` | `by_user(userId)`, `by_studio(studioId)`, `by_studio_user(studioId, userId)` |
 | `savedPasswords` | `by_username(username)` |
 | `driveTokens` | `by_user(userId)` |
 | `vaultDriveTokens` | `by_key(key)` |
@@ -465,7 +508,7 @@ erDiagram
 | `mediaGrants` | `by_token(token)` |
 | `driveStates` | `by_nonce(nonce)` |
 | `driveFiles` | `by_user(userId)` |
-| `classes` | `by_code(code)`, `by_owner(ownerId)` |
+| `classes` | `by_code(code)`, `by_owner(ownerId)`, `by_studio(studioId)` |
 | `attendanceMarks` | `by_code(code)`, `by_code_and_date(code, date)` |
 | `practiceEntries` | `by_code(code)`, `by_code_and_date(code, date)`, `by_client(clientId)` |
 | `vaultMedia` | `by_code(code)`, `by_drive_file(driveFileId)`, `by_uploader(uploaderId)` |

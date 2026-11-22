@@ -62,6 +62,55 @@ const schema = defineSchema(
 
     // add other tables here
 
+    // Studios: the tenant above a class. One deployment can host several
+    // schools, and a studio owns its teachers, its classes and its folder in
+    // the archive Drive. Everything a person can reach belongs to exactly one
+    // studio; only the built-in admin crosses that line (see convex/studios.ts).
+    studios: defineTable({
+      /** Six-character code a teacher enters to join this studio. */
+      code: v.string(),
+      name: v.string(),
+      /** The teacher who created it, and may rename it and add teachers. */
+      ownerId: v.id("users"),
+      ownerName: v.string(),
+      /**
+       * Folder in the class-archive Drive, fixed at creation: `nv` + the name
+       * without spaces. Settled once so a rename never strands a school's files.
+       */
+      folderName: v.string(),
+      /** Drive folder id, cached the first time an upload creates or adopts it. */
+      driveFolderId: v.optional(v.string()),
+      /** Closed studios refuse new teacher joins; students are unaffected. */
+      joinOpen: v.boolean(),
+      /** Set by the platform admin to freeze a studio without deleting it. */
+      suspendedAt: v.optional(v.number()),
+      createdAt: v.number(),
+    })
+      .index("by_code", ["code"])
+      .index("by_owner", ["ownerId"])
+      .index("by_folder", ["folderName"]),
+
+    /**
+     * Who is in which studio. A row per account, like `classMembers`: a
+     * teacher's is written when they join or found a studio, a student's when
+     * they join a class (the class names the studio). `by_user` + `.first()`
+     * is "my studio" everywhere.
+     */
+    studioMembers: defineTable({
+      studioId: v.id("studios"),
+      userId: v.id("users"),
+      role: v.union(
+        v.literal("owner"),
+        v.literal("teacher"),
+        v.literal("student"),
+      ),
+      name: v.string(),
+      joinedAt: v.number(),
+    })
+      .index("by_user", ["userId"])
+      .index("by_studio", ["studioId"])
+      .index("by_studio_user", ["studioId", "userId"]),
+
     // Plain-text copy of each account's password, captured server-side when
     // the account is created (see convex/auth/password.ts). Only the
     // admin-credential-gated functions in convex/admin.ts ever read it.
@@ -159,10 +208,17 @@ const schema = defineSchema(
       name: v.string(),
       ownerId: v.id("users"),
       ownerName: v.string(),
+      /**
+       * The studio this class belongs to. Missing only on classes created
+       * before studios existed; the backfill (convex/migrations.ts) fills it
+       * in, and until then such a class behaves the way it used to.
+       */
+      studioId: v.optional(v.id("studios")),
       createdAt: v.number(),
     })
       .index("by_code", ["code"])
-      .index("by_owner", ["ownerId"]),
+      .index("by_owner", ["ownerId"])
+      .index("by_studio", ["studioId"]),
 
     // Attendance marks, one row per class, class day, and person. They live
     // here (not in a browser) so a teacher's marks and a student's "not

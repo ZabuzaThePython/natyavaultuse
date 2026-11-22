@@ -9,6 +9,18 @@ import {
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
+import { findClass, generateCode } from "./codes";
+import {
+  addStudioMember,
+  classAccess,
+  membershipFor,
+  scopeFor,
+  studioRoleIn,
+} from "./studios";
+
+// The join-code helpers moved to codes.ts (studios.ts needs them too) and are
+// re-exported here, so every `from "./classes"` import keeps working.
+export { CODE_LENGTH, findClass, generateCode, normalizeCode } from "./codes";
 
 /**
  * Classes.
@@ -26,45 +38,8 @@ import {
  * that are easy to misread in a classroom (0/O, 1/I/L).
  */
 
-export const CODE_LENGTH = 6;
-const CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
-/** How many times to retry when a generated code is already taken. */
+/** How many times to retry when a generated class code is already taken. */
 const CODE_ATTEMPTS = 12;
-
-/** Uppercase a typed code and drop anything a code can't contain. */
-export function normalizeCode(raw: unknown): string {
-  return String(raw ?? "")
-    .toUpperCase()
-    .replace(/[^A-Z0-9]/g, "")
-    .slice(0, CODE_LENGTH);
-}
-
-function randomChar(): string {
-  const bytes = new Uint8Array(1);
-  if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
-    crypto.getRandomValues(bytes);
-  } else {
-    bytes[0] = Math.floor(Math.random() * 256);
-  }
-  return CODE_ALPHABET[bytes[0] % CODE_ALPHABET.length];
-}
-
-/** A fresh join code (not checked for collisions). */
-export function generateCode(): string {
-  let code = "";
-  for (let i = 0; i < CODE_LENGTH; i++) code += randomChar();
-  return code;
-}
-
-/** The class a code points at, or null when the code is malformed/unknown. */
-export async function findClass(ctx: QueryCtx | MutationCtx, rawCode: unknown) {
-  const code = normalizeCode(rawCode);
-  if (code.length !== CODE_LENGTH) return null;
-  return await ctx.db
-    .query("classes")
-    .withIndex("by_code", (q) => q.eq("code", code))
-    .unique();
-}
 
 /**
  * Whether a code is valid, and the class name it belongs to. The sign-up card
@@ -75,7 +50,11 @@ export const validateCode = query({
   args: { code: v.string() },
   handler: async (ctx, { code }) => {
     const row = await findClass(ctx, code);
-    return row ? { ok: true, name: row.name } : { ok: false, name: null };
+    if (!row) return { ok: false, name: null, studioName: null };
+    // The sign-up card can say which school the code belongs to, so a student
+    // knows they are joining the right class.
+    const studio = row.studioId === undefined ? null : await ctx.db.get(row.studioId);
+    return { ok: true, name: row.name, studioName: studio?.name ?? null };
   },
 });
 
@@ -108,50 +87,11 @@ export const myClasses = query({
 });
 
 /**
- * The built-in admin account (see convex/admin.ts). It signs in as a normal
- * password account named `admin`, so that is how the server recognises it.
+ * "Who may open which class" now lives in convex/studios.ts (`classAccess`):
+ * the platform admin, the staff of that class's studio, and the students who
+ * joined it. It used to be a deployment-wide "sees every class" test, which is
+ * exactly what a second studio breaks.
  */
-const ADMIN_ACCOUNT = "admin";
-
-/**
- * Whether the account may see — and open — every class in the school: the
- * built-in admin, an account created as a teacher, or one that already owns a
- * class (teachers from before `classRole` existed). Teachers are staff, so
- * this is also what keeps them off the attendance sheet.
- */
-export async function maySeeEveryClass(
-  ctx: QueryCtx | MutationCtx,
-  userId: Id<"users">,
-): Promise<boolean> {
-  const me = await ctx.db.get(userId);
-  if (
-    me !== null &&
-    (me.email === ADMIN_ACCOUNT ||
-      me.role === "admin" ||
-      me.name?.trim().toLowerCase() === ADMIN_ACCOUNT)
-  ) {
-    return true;
-  }
-  if (me?.classRole === "teacher") return true;
-  const ownsAClass = await ctx.db
-    .query("classes")
-    .withIndex("by_owner", (q) => q.eq("ownerId", userId))
-    .first();
-  return ownsAClass !== null;
-}
-
-/** Whether this account has joined the class with that code. */
-async function joinedClass(
-  ctx: QueryCtx,
-  userId: Id<"users">,
-  code: string,
-): Promise<boolean> {
-  const member = await ctx.db
-    .query("classMembers")
-    .withIndex("by_user", (q) => q.eq("userId", userId))
-    .first();
-  return member !== null && member.code === code;
-}
 
 /**
  * Every class in the school, for teachers and the admin.
@@ -160,22 +100,41 @@ async function joinedClass(
  * no rows, so a class code is never handed out by this query.
  */
 export const allClasses = query({
-  args: {},
-  handler: async (ctx) => {
+  // The platform admin picks which school to look at; a teacher's own studio is
+  // implied and cannot be widened by passing another studio's id.
+  args: { studioId: v.optional(v.id("studios")) },
+  handler: async (ctx, { studioId }) => {
+    const closed = {
+      canSeeAll: false,
+      classes: [] as {
+        code: string;
+        name: string;
+        ownerName: string;
+        members: number;
+        isMine: boolean;
+        canDelete: boolean;
+      }[],
+      studio: null as { id: Id<"studios">; name: string } | null,
+    };
     const userId = await getAuthUserId(ctx);
-    if (userId === null) return { canSeeAll: false, classes: [] };
+    if (userId === null) return closed;
 
-    const canSeeAll = await maySeeEveryClass(ctx, userId);
-    if (!canSeeAll) return { canSeeAll: false, classes: [] };
+    const scope = await scopeFor(ctx, userId);
+    if (scope === null || scope.kind === "student") return closed;
 
-    const me = await ctx.db.get(userId);
-    // Who may delete a class: the teacher who created it, or the admin (who
-    // can clean up any class in the school). A teacher who merely sees a
-    // colleague's class must not be able to remove it.
-    const isAdminAccount =
-      me !== null && (me.email === ADMIN_ACCOUNT || me.role === "admin");
+    const target = scope.kind === "platform" ? studioId : scope.studioId;
+    const studio = target === undefined ? null : await ctx.db.get(target);
+    const platform = scope.kind === "platform";
 
-    const rows = await ctx.db.query("classes").collect();
+    // No studio picked by the operator: every studio's classes, which is what
+    // this list showed before studios existed.
+    const rows =
+      target === undefined
+        ? await ctx.db.query("classes").collect()
+        : await ctx.db
+            .query("classes")
+            .withIndex("by_studio", (q) => q.eq("studioId", target))
+            .collect();
     // One pass over the membership table instead of a read per class.
     const members = await ctx.db.query("classMembers").collect();
     const counts = new Map<string, number>();
@@ -185,6 +144,7 @@ export const allClasses = query({
 
     return {
       canSeeAll: true,
+      studio: studio === null ? null : { id: studio._id, name: studio.name },
       classes: rows
         .map((row) => ({
           code: row.code,
@@ -192,7 +152,9 @@ export const allClasses = query({
           ownerName: row.ownerName,
           members: counts.get(row.code) ?? 0,
           isMine: row.ownerId === userId,
-          canDelete: row.ownerId === userId || isAdminAccount,
+          // Only the teacher who created it, or the platform admin: seeing a
+          // colleague's class must not mean being able to wipe it.
+          canDelete: row.ownerId === userId || platform,
         }))
         .sort((a, b) => a.name.localeCompare(b.name)),
     };
@@ -211,10 +173,39 @@ export const allClasses = query({
  */
 export const viewerRole = query({
   args: {},
-  handler: async (ctx): Promise<{ signedIn: boolean; isStaff: boolean }> => {
+  handler: async (ctx): Promise<{
+    signedIn: boolean;
+    isStaff: boolean;
+    isPlatformAdmin: boolean;
+    studio: { id: Id<"studios">; name: string; code: string } | null;
+  }> => {
     const userId = await getAuthUserId(ctx);
-    if (userId === null) return { signedIn: false, isStaff: false };
-    return { signedIn: true, isStaff: await maySeeEveryClass(ctx, userId) };
+    if (userId === null) {
+      return { signedIn: false, isStaff: false, isPlatformAdmin: false, studio: null };
+    }
+    const scope = await scopeFor(ctx, userId);
+    if (scope === null) {
+      return { signedIn: true, isStaff: false, isPlatformAdmin: false, studio: null };
+    }
+    if (scope.kind === "platform") {
+      return { signedIn: true, isStaff: true, isPlatformAdmin: true, studio: null };
+    }
+    const studio = await ctx.db.get(scope.studioId);
+    return {
+      signedIn: true,
+      isStaff: scope.kind === "studio",
+      isPlatformAdmin: false,
+      // A student gets the studio's name but not its join code: that code is
+      // for teachers.
+      studio:
+        studio === null
+          ? null
+          : {
+              id: studio._id,
+              name: studio.name,
+              code: scope.kind === "studio" ? studio.code : "",
+            },
+    };
   },
 });
 
@@ -234,7 +225,14 @@ export async function sheetPeople(
     const account = await ctx.db.get(member.userId);
     const name = account?.name ?? account?.email;
     if (!name) continue;
-    if (member.userId === row.ownerId || account?.classRole === "teacher") {
+    // Staff of this studio stay off the roll. A class from before studios has
+    // no studio to ask, so it falls back to the account's sign-up choice.
+    const studioRole = await studioRoleIn(ctx, member.userId, row.studioId);
+    const isTeacher =
+      studioRole !== null
+        ? studioRole !== "student"
+        : account?.classRole === "teacher";
+    if (member.userId === row.ownerId || isTeacher) {
       teachers.push(name);
       continue;
     }
@@ -292,10 +290,9 @@ export const classSheet = query({
     // role the browser stored belongs to whoever signed in on that device last,
     // so a student on a machine a teacher used would otherwise be treated as
     // the teacher and locked out of their own row.
-    const viewerIsStaff =
-      row.ownerId === userId || (await maySeeEveryClass(ctx, userId));
-    const allowed = viewerIsStaff || (await joinedClass(ctx, userId, row.code));
-    if (!allowed) return closed;
+    const access = await classAccess(ctx, userId, row);
+    const viewerIsStaff = access.staff || row.ownerId === userId;
+    if (!access.read) return closed;
 
     const members = await ctx.db
       .query("classMembers")
@@ -324,11 +321,29 @@ export const classSheet = query({
  * the new class is theirs (they don't need to join it).
  */
 export const createClass = mutation({
-  args: { name: v.string() },
-  handler: async (ctx, { name }) => {
+  args: { name: v.string(), studioId: v.optional(v.id("studios")) },
+  handler: async (ctx, { name, studioId }) => {
     const userId = await getAuthUserId(ctx);
     if (userId === null) {
       return { ok: false, error: "Sign in before creating a class.", code: null, name: null };
+    }
+    // A class belongs to a studio: the caller's own, or the one the platform
+    // admin is looking at. A student never creates one.
+    const scope = await scopeFor(ctx, userId);
+    if (scope === null || scope.kind === "student") {
+      return { ok: false, error: "Only a teacher can create a class.", code: null, name: null };
+    }
+    const studio =
+      scope.kind === "platform"
+        ? (studioId ?? (await ctx.db.query("studios").first())?._id)
+        : scope.studioId;
+    if (studio === undefined) {
+      return {
+        ok: false,
+        error: "Create a studio first — a class belongs to one.",
+        code: null,
+        name: null,
+      };
     }
     const trimmed = name.trim().slice(0, 60) || "New class";
 
@@ -359,6 +374,7 @@ export const createClass = mutation({
       name: trimmed,
       ownerId: userId,
       ownerName: user?.name ?? user?.email ?? "teacher",
+      studioId: studio,
       createdAt: Date.now(),
     });
     return { ok: true, code, name: trimmed };
@@ -390,10 +406,10 @@ export const deleteClass = mutation({
       return { ok: false, error: "That class no longer exists.", name: null };
     }
 
-    const me = await ctx.db.get(userId);
-    const isAdminAccount =
-      me !== null && (me.email === ADMIN_ACCOUNT || me.role === "admin");
-    if (row.ownerId !== userId && !isAdminAccount) {
+    // Staff of the studio is not enough: a colleague who merely sees a class
+    // must not be able to wipe it. Its owner, or the platform admin.
+    const access = await classAccess(ctx, userId, row);
+    if (row.ownerId !== userId && !access.platform) {
       return {
         ok: false,
         error: "Only the class's owner or the admin can delete it.",
@@ -472,6 +488,29 @@ async function recordMembership(
   userId: Id<"users">,
   row: Doc<"classes">,
 ) {
+  // The class names the studio, so belonging to the class also puts the
+  // account in that studio (the studio is what scopes everything else). A
+  // teacher already in a studio keeps it; a student moves with their class.
+  if (row.studioId !== undefined) {
+    const me = await ctx.db.get(userId);
+    const who = me?.name ?? me?.email ?? "dancer";
+    const studio = await membershipFor(ctx, userId);
+    if (studio === null) {
+      await addStudioMember(ctx, {
+        studioId: row.studioId,
+        userId,
+        role: "student",
+        name: who,
+      });
+    } else if (studio.role === "student" && studio.studioId !== row.studioId) {
+      await ctx.db.patch(studio._id, {
+        studioId: row.studioId,
+        name: who,
+        joinedAt: Date.now(),
+      });
+    }
+  }
+
   const existing = await ctx.db
     .query("classMembers")
     .withIndex("by_user", (q) => q.eq("userId", userId))

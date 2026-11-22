@@ -39,6 +39,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api } from "@/convex/_generated/api";
 import { useIsAdmin } from "@/lib/admin";
+import { useActiveStudio } from "@/lib/studios";
 import {
   formatClassCode,
   useAllClasses,
@@ -107,6 +108,9 @@ export default function Classes() {
     canSeeAll,
     isLoading: schoolLoading,
   } = useAllClasses();
+  // Which school's classes these are, for the admin: the one picked in the
+  // sidebar. A teacher's studio is decided by the deployment.
+  const { studioId: activeStudioId } = useActiveStudio();
   const createClass = useMutation(api.classes.createClass);
   const joinClass = useMutation(api.classes.joinClass);
   const deleteClass = useMutation(api.classes.deleteClass);
@@ -151,7 +155,11 @@ export default function Classes() {
     if (!name || creating) return;
     setCreating(true);
     try {
-      const result = await createClass({ name });
+      // A new class belongs to the studio on screen: for the platform admin
+      // that is the one picked in the sidebar, for a teacher their own.
+      const result = await createClass(
+        activeStudioId ? { name, studioId: activeStudioId } : { name },
+      );
       if (!result.ok || !result.code) {
         toast.error(result.error ?? "Could not create the class.");
         return;

@@ -16,6 +16,7 @@ import { useAuth } from "@/hooks/use-auth";
 import type { AttendanceEntry } from "@/lib/vault";
 import { useQuery } from "convex/react";
 import { getLastAccount } from "@/lib/last-account";
+import { useActiveStudio } from "@/lib/studios";
 import { useEffect, useMemo } from "react";
 
 export interface ClassSummary {
@@ -59,7 +60,13 @@ export interface AllClassesState {
  * they joined.
  */
 export function useAllClasses(): AllClassesState {
-  const data = useQuery(api.classes.allClasses);
+  // The platform admin looks at one school at a time; for a teacher the studio
+  // is their own and the argument is ignored by the deployment.
+  const { studioId } = useActiveStudio();
+  const data = useQuery(
+    api.classes.allClasses,
+    studioId ? { studioId } : {},
+  );
   return {
     classes: data?.classes ?? [],
     canSeeAll: data?.canSeeAll ?? false,
@@ -73,6 +80,8 @@ export function useAllClasses(): AllClassesState {
  */
 export interface ViewerRole {
   isStaff: boolean;
+  /** True for the built-in admin account: the operator, across studios. */
+  isPlatformAdmin: boolean;
   /** True until the deployment has answered. */
   isLoading: boolean;
   /** False when the server cannot see this browser's session at all. */
@@ -149,6 +158,7 @@ export function useViewerIsStaff(): ViewerRole {
 
   return {
     isStaff: confirmed ?? cached ?? false,
+    isPlatformAdmin: data?.isPlatformAdmin ?? false,
     isLoading: data === undefined && cached === null,
     signedIn: data === undefined ? null : data.signedIn,
   };

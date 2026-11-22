@@ -41,6 +41,7 @@ import {
   useClasses,
   useViewerIsStaff,
 } from "@/lib/classes";
+import { useActiveStudio, useStudios } from "@/lib/studios";
 import { rememberAccount } from "@/lib/last-account";
 import { firstName } from "@/lib/display-name";
 import {
@@ -316,7 +317,11 @@ export default function AppShell() {
   const isAdmin = useIsAdmin();
   // Whether this account is staff, decided by the deployment — not by the role
   // this browser happens to have stored (see convex/classes.ts viewerRole).
-  const { isStaff: viewerIsStaff, isLoading: roleLoading } = useViewerIsStaff();
+  const {
+    isStaff: viewerIsStaff,
+    isPlatformAdmin,
+    isLoading: roleLoading,
+  } = useViewerIsStaff();
   const vault = useVault();
   const navigate = useNavigate();
   const location = useLocation();
@@ -328,6 +333,46 @@ export default function AppShell() {
     canSeeAll,
     isLoading: allClassesLoading,
   } = useAllClasses();
+
+  // The platform admin looks at one school at a time: the picker below the
+  // Studio heading chooses it, and the class list follows. A teacher's studio
+  // is their own, and a student never sees this control at all.
+  const { studioId: activeStudioId, setStudioId } = useActiveStudio();
+  const { studios } = useStudios();
+  useEffect(() => {
+    if (!isPlatformAdmin || studios.length === 0) return;
+    if (
+      activeStudioId &&
+      studios.some((studio) => studio.id === activeStudioId)
+    ) {
+      return;
+    }
+    setStudioId(studios[0].id);
+  }, [isPlatformAdmin, studios, activeStudioId, setStudioId]);
+
+  // A deployment that has no studio yet (everything predates studios) is one
+  // click away from having one: the backfill puts every class and account into
+  // a single studio and adopts the archive folder already in the Drive.
+  const backfillStudios = useMutation(api.migrations.studiosBackfill);
+  const [backfilling, setBackfilling] = useState(false);
+  const runBackfill = async () => {
+    setBackfilling(true);
+    try {
+      const result = await backfillStudios({});
+      if (!result.ok) {
+        toast.error(result.error ?? "Could not set up studios.");
+        return;
+      }
+      toast.success(
+        `${result.studio}: ${result.classes} classes, ${result.teachers} teachers, ${result.students} students.`,
+      );
+    } catch (error) {
+      console.error("Studio backfill failed:", error);
+      toast.error("Could not set up studios.");
+    } finally {
+      setBackfilling(false);
+    }
+  };
 
   // The practice log moved from this browser to the deployment. Sessions an
   // older build kept here are handed over once, per class, for the signed-in
@@ -521,6 +566,54 @@ export default function AppShell() {
         <SidebarContent>
           <SidebarGroup>
             <SidebarGroupLabel>Studio</SidebarGroupLabel>
+            {isPlatformAdmin ? (
+              <div className="px-1 pb-2">
+                {studios.length > 0 ? (
+                  <>
+                    <label
+                      htmlFor="studio-picker"
+                      className="mb-1 block text-[11px] text-sidebar-foreground/60"
+                    >
+                      School
+                    </label>
+                    <Select
+                      value={activeStudioId ?? studios[0].id}
+                      onValueChange={(value) => setStudioId(value)}
+                    >
+                      <SelectTrigger
+                        id="studio-picker"
+                        aria-label="Choose a studio to view"
+                        className="h-8 w-full cursor-pointer text-xs"
+                      >
+                        <SelectValue placeholder="Pick a school" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {studios.map((studio) => (
+                          <SelectItem
+                            key={studio.id}
+                            value={studio.id}
+                            className="cursor-pointer text-xs"
+                          >
+                            {studio.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </>
+                ) : (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 w-full cursor-pointer text-xs"
+                    onClick={runBackfill}
+                    disabled={backfilling}
+                  >
+                    {backfilling ? "Setting up…" : "Set up studios"}
+                  </Button>
+                )}
+              </div>
+            ) : null}
             <ClassSwitcher
               classes={switchableClasses}
               activeCode={vault.classCode}
