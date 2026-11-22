@@ -1,4 +1,6 @@
 import { Toaster } from "@/components/ui/sonner";
+import { ChunkUpdateBoundary } from "@/components/ChunkUpdateBoundary";
+import { isStaleChunkError, reloadForUpdate } from "@/lib/chunk-reload";
 import { RequireAuth } from "@/components/RequireAuth";
 import { RequireAdmin } from "@/components/RequireAdmin";
 import { ConnectionGuard } from "@/components/ConnectionGuard";
@@ -67,21 +69,39 @@ class RootErrorBoundary extends React.Component<
   }
   componentDidCatch(err: Error) {
     console.error("[Preview] Root crash:", err);
+    // A redeploy is not a crash: this tab is holding an older build's file
+    // names, so it reloads onto the current one instead of showing an error.
+    if (isStaleChunkError(err) && reloadForUpdate()) return;
   }
   render() {
     if (this.state.hasError) {
       return (
         <div className="min-h-screen flex items-center justify-center bg-background text-foreground p-6">
           <div className="max-w-lg text-center">
-            <p className="text-sm font-semibold">Preview runtime error</p>
+            <p className="text-sm font-semibold">NatyaVault hit an error</p>
             <p className="mt-2 text-xs text-muted-foreground break-words">
               {this.state.message}
             </p>
-            {this.state.stack && (
+            <div className="mt-4 flex justify-center gap-2">
+              <button
+                type="button"
+                className="cursor-pointer rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground"
+                onClick={() => window.location.reload()}
+              >
+                Reload
+              </button>
+              <a
+                href="/dashboard"
+                className="cursor-pointer rounded-md border border-border px-3 py-1.5 text-xs font-medium"
+              >
+                Dashboard
+              </a>
+            </div>
+            {import.meta.env.DEV && this.state.stack ? (
               <pre className="mt-3 text-left text-[10px] leading-4 text-muted-foreground/80 max-h-40 overflow-auto rounded border border-border/60 p-2">
                 {this.state.stack}
               </pre>
-            )}
+            ) : null}
           </div>
         </div>
       );
@@ -92,7 +112,15 @@ class RootErrorBoundary extends React.Component<
 
 const convex = new ConvexReactClient(import.meta.env.VITE_CONVEX_URL as string);
 
-
+// A redeploy replaces the hashed chunk files. A tab that still holds the old
+// `index.html` then asks for files that no longer exist, which is what the
+// browser reports as "Failed to fetch dynamically imported module". Vite raises
+// this event instead of letting the failure surface mid-route: take the new
+// build rather than an error screen.
+window.addEventListener("vite:preloadError", (event) => {
+  event.preventDefault();
+  reloadForUpdate();
+});
 
 function RouteSyncer() {
   const location = useLocation();
@@ -117,7 +145,6 @@ function RouteSyncer() {
   return null;
 }
 
-
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <RootErrorBoundary>
@@ -134,40 +161,42 @@ createRoot(document.getElementById("root")!).render(
         <ConvexAuthProvider client={convex} storage={getAuthStorage()}>
           <BrowserRouter>
             <RouteSyncer />
-            <Suspense fallback={<RouteLoading />}>
-              <Routes>
-                <Route path="/" element={<Landing />} />
-                <Route
-                  path="/auth"
-                  element={<AuthPage redirectAfterAuth="/dashboard" />}
-                />
-                <Route
-                  path="/dashboard"
-                  element={
-                    <RequireAuth>
-                      <AppShell />
-                    </RequireAuth>
-                  }
-                >
-                  <Route index element={<Dashboard />} />
-                  <Route path="practice" element={<PracticeLog />} />
-                  <Route path="attendance" element={<Attendance />} />
-                  <Route path="classes" element={<Classes />} />
-                  <Route path="studio" element={<Studio />} />
-                  <Route path="vault" element={<MediaVault />} />
-                  <Route path="messages" element={<Messages />} />
+            <ChunkUpdateBoundary>
+              <Suspense fallback={<RouteLoading />}>
+                <Routes>
+                  <Route path="/" element={<Landing />} />
                   <Route
-                    path="admin"
-                    element={
-                      <RequireAdmin>
-                        <Admin />
-                      </RequireAdmin>
-                    }
+                    path="/auth"
+                    element={<AuthPage redirectAfterAuth="/dashboard" />}
                   />
-                </Route>
-                <Route path="*" element={<NotFound />} />
-              </Routes>
-            </Suspense>
+                  <Route
+                    path="/dashboard"
+                    element={
+                      <RequireAuth>
+                        <AppShell />
+                      </RequireAuth>
+                    }
+                  >
+                    <Route index element={<Dashboard />} />
+                    <Route path="practice" element={<PracticeLog />} />
+                    <Route path="attendance" element={<Attendance />} />
+                    <Route path="classes" element={<Classes />} />
+                    <Route path="studio" element={<Studio />} />
+                    <Route path="vault" element={<MediaVault />} />
+                    <Route path="messages" element={<Messages />} />
+                    <Route
+                      path="admin"
+                      element={
+                        <RequireAdmin>
+                          <Admin />
+                        </RequireAdmin>
+                      }
+                    />
+                  </Route>
+                  <Route path="*" element={<NotFound />} />
+                </Routes>
+              </Suspense>
+            </ChunkUpdateBoundary>
           </BrowserRouter>
           <Toaster />
         </ConvexAuthProvider>
