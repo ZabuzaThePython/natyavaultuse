@@ -1,0 +1,15 @@
+#!/bin/sh
+# Blocks a commit that would leave the generated docs or the exported diagram
+# images disagreeing with the code. Run `npm run docs:data-model` to fix, or
+# bypass once with: SKIP_DOCS_CHECK=1 git commit ...
+if [ "$SKIP_DOCS_CHECK" = "1" ]; then
+  exit 0
+fi
+
+if ! npm run --silent docs:data-model:check; then
+  printf '\n%s\n%s\n\n' \
+    "Committing would leave docs/architecture.md, docs/data-model.md or the" \
+    "SVGs in docs/diagrams/ out of date with src/convex/."
+  echo "Run: npm run docs:data-model"
+  exit 1
+fi

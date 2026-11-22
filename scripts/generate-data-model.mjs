@@ -20,7 +20,7 @@
  */
 import { build } from "esbuild";
 import { authTables } from "@convex-dev/auth/server";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -32,10 +32,16 @@ const ARCHITECTURE_DOC = join(ROOT, "docs/architecture.md");
 const DIAGRAMS_HTML = join(ROOT, "docs/diagrams.html");
 const SVG_DIR = join(ROOT, "docs/diagrams");
 
+const CONVEX_DIR = join(ROOT, "src/convex");
+
 const DATA_BEGIN = "<!-- BEGIN GENERATED DATA MODEL -->";
 const DATA_END = "<!-- END GENERATED DATA MODEL -->";
 const COUNTS_BEGIN = "<!-- BEGIN GENERATED COUNTS -->";
 const COUNTS_END = "<!-- END GENERATED COUNTS -->";
+const BACKEND_BEGIN = "<!-- BEGIN GENERATED BACKEND -->";
+const BACKEND_END = "<!-- END GENERATED BACKEND -->";
+const PAGES_BEGIN = "<!-- BEGIN GENERATED PAGES -->";
+const PAGES_END = "<!-- END GENERATED PAGES -->";
 
 const checkOnly = process.argv.includes("--check");
 
@@ -342,6 +348,165 @@ function renderIndexes(tables) {
   return ["| table | indexes |", "| --- | --- |", ...rows].join("\n");
 }
 
+/**
+ * Every exported Convex function and HTTP route, read out of `src/convex/`.
+ * The architecture doc renders this, so adding or renaming a function is
+ * visible in the docs whether or not anyone remembers to edit them.
+ */
+async function readBackendSurface() {
+  const files = (await readdir(CONVEX_DIR))
+    .filter((file) => file.endsWith(".ts"))
+    .sort();
+  const modules = [];
+  const routes = [];
+
+  for (const file of files) {
+    const source = await readFile(join(CONVEX_DIR, file), "utf8");
+    const groups = { query: [], mutation: [], action: [], internal: [] };
+    // Case-insensitive so `internalQuery` counts as an internal query rather
+    // than silently disappearing from the table.
+    const functions = /^export const (\w+)\s*=\s*(internal)?(query|mutation|action)\(/gim;
+    let found = functions.exec(source);
+    while (found !== null) {
+      const [, name, internal, kind] = found;
+      (internal ? groups.internal : groups[kind.toLowerCase()]).push(name);
+      found = functions.exec(source);
+    }
+    if (groups.query.length + groups.mutation.length + groups.action.length + groups.internal.length > 0) {
+      modules.push({ file, ...groups });
+    }
+
+    if (file === "http.ts") {
+      const paths = /path:\s*"([^"]+)"/g;
+      let route = paths.exec(source);
+      while (route !== null) {
+        const nearby = source.slice(route.index, route.index + 400);
+        const method = nearby.match(/method:\s*"([A-Z]+)"/);
+        routes.push({ path: route[1], method: method ? method[1] : "GET" });
+        route = paths.exec(source);
+      }
+    }
+  }
+
+  return { modules, routes };
+}
+
+/**
+ * The React Router tree, read from `src/main.tsx`. Tags span several lines and
+ * nest, so this walks lines and keeps a stack of parents rather than trying to
+ * parse JSX.
+ */
+async function readFrontendRoutes() {
+  const source = (await readFile(join(ROOT, "src/main.tsx"), "utf8")).replace(
+    /\s+/g,
+    " ",
+  );
+  const stack = [];
+  const routes = [];
+  const tokens = /<\/Route>|<Route(?=[\s/>])/g;
+  let token = tokens.exec(source);
+
+  while (token !== null) {
+    if (token[0] === "</Route>") {
+      stack.pop();
+      token = tokens.exec(source);
+      continue;
+    }
+
+    // Walk to the tag's own `>`, stepping over quoted strings and the JSX
+    // braces that hold element={<Guard><Page /></Guard>}.
+    let depth = 0;
+    let end = token.index + 6;
+    for (; end < source.length; end++) {
+      const character = source[end];
+      if (character === '"') {
+        const close = source.indexOf('"', end + 1);
+        if (close === -1) break;
+        end = close;
+      } else if (character === "{") depth += 1;
+      else if (character === "}") depth -= 1;
+      else if (character === ">" && depth === 0) break;
+    }
+    const tag = source.slice(token.index, end + 1);
+
+    const parent = stack.length > 0 ? stack[stack.length - 1] : { path: "", guard: "public" };
+    const pathMatch = tag.match(/path="([^"]*)"/);
+    let path = parent.path || "/";
+    if (pathMatch) {
+      const raw = pathMatch[1];
+      path = raw.startsWith("/") ? raw : `${parent.path === "/" ? "" : parent.path}/${raw}`;
+    }
+    path = path.replace(/\/$/, "") || "/";
+
+    const own = /RequireAdmin/.test(tag) ? "admin" : /RequireAuth/.test(tag) ? "signed in" : null;
+    const guard = own ?? parent.guard;
+    const page =
+      [...tag.matchAll(/<([A-Z]\w*)/g)]
+        .map((found) => found[1])
+        .filter((name) => name !== "Route" && name !== "Routes" && !name.startsWith("Require"))[0] ?? "—";
+
+    routes.push({ path, page, guard });
+    if (!/\/>$/.test(tag)) stack.push({ path, guard });
+    token = tokens.exec(source);
+  }
+
+  return routes;
+}
+
+/** The generated "Pages" body of docs/architecture.md. */
+function renderPages(routes) {
+  return [
+    "The React Router tree in `src/main.tsx`, with the guard in front of each",
+    "page.",
+    "",
+    "| path | page | who gets in |",
+    "| --- | --- | --- |",
+    ...routes.map(
+      (route) => `| \`${route.path}\` | \`${route.page}\` | ${route.guard} |`,
+    ),
+  ].join("\n");
+}
+
+/** The generated "Backend surface" body of docs/architecture.md. */
+function renderBackendSurface({ modules, routes }) {
+  const totals = { query: 0, mutation: 0, action: 0, internal: 0 };
+  for (const module of modules) {
+    for (const kind of Object.keys(totals)) totals[kind] += module[kind].length;
+  }
+
+  const lines = [
+    `**${totals.query + totals.mutation + totals.action} public functions**, ${totals.internal}`,
+    `internal helpers — ${totals.query} queries, ${totals.mutation} mutations and`,
+    `${totals.action} actions across ${modules.length} modules in \`src/convex/\`.`,
+    "",
+    "| module | queries | mutations | actions | internal |",
+    "| --- | --- | --- | --- | --- |",
+  ];
+
+  const cell = (names) =>
+    names.length > 0 ? names.map((name) => `\`${name}\``).join(", ") : "—";
+
+  for (const module of modules) {
+    lines.push(
+      `| \`${module.file}\` | ${cell(module.query)} | ${cell(module.mutation)} | ${cell(module.action)} | ${cell(module.internal)} |`,
+    );
+  }
+
+  lines.push(
+    "",
+    `HTTP routes registered in \`http.ts\` (${routes.length}):`,
+    "",
+    "| method | path |",
+    "| --- | --- |",
+    ...routes.map((route) => `| ${route.method} | \`${route.path}\` |`),
+    "",
+    "Generated from the source, so a new function or route appears here — or",
+    "\`npm run docs:data-model:check\` fails.",
+  );
+
+  return lines.join("\n");
+}
+
 function renderCounts(tables) {
   const { total, primary, authOnly } = countTables(tables);
   return [
@@ -585,12 +750,33 @@ const results = [
     COUNTS_END,
     renderCounts(tables),
   ),
+  await writeSection(
+    ARCHITECTURE_DOC,
+    BACKEND_BEGIN,
+    BACKEND_END,
+    renderBackendSurface(await readBackendSurface()),
+  ),
+  await writeSection(
+    ARCHITECTURE_DOC,
+    PAGES_BEGIN,
+    PAGES_END,
+    renderPages(await readFrontendRoutes()),
+  ),
   await writeGenerated(DIAGRAMS_HTML, renderDiagramsHtml(diagrams)),
 ];
 
 const staleSvgs = await auditSvgs(diagrams);
 
+// One line per file: architecture.md is written twice (counts and backend).
+const byPath = new Map();
 for (const result of results) {
+  const seen = byPath.get(result.path) ?? { path: result.path, changed: false, stale: false };
+  seen.changed ||= result.changed;
+  seen.stale ||= result.stale;
+  byPath.set(result.path, seen);
+}
+
+for (const result of byPath.values()) {
   const state = result.changed ? "updated" : result.stale ? "STALE" : "unchanged";
   console.log(`${state.padEnd(9)} ${result.path.replace(`${ROOT}/`, "")}`);
 }
@@ -601,9 +787,9 @@ console.log(
   `${countTables(tables).total} tables in ${DOMAINS.length} domain diagrams`,
 );
 
-const failed = results.some((result) => result.stale) || staleSvgs.length > 0;
+const failed = [...byPath.values()].some((result) => result.stale) || staleSvgs.length > 0;
 if (failed) {
-  if (results.some((result) => result.stale)) {
+  if ([...byPath.values()].some((result) => result.stale)) {
     console.error("\nDocs are out of date — run: npm run docs:data-model");
   }
   if (staleSvgs.length > 0) {

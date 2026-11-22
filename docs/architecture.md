@@ -88,10 +88,74 @@ This count is generated from the schema, not typed by hand.
 | Service worker | Receives Web Push messages for new chat messages and calls. |
 | localStorage | Namespaced per deployment: the auth JWT and refresh token, the remembered account, the per-account staff role cache, and the admin unlock. |
 | Queries and mutations | `classes`, `chats`, `vault`, `attendance`, `practice`, `admin` — every read and write of app data. |
-| HTTP routes | `auth.addHttpRoutes` (OAuth discovery and JWKS), `/drive/callback`, `/drive/upload-proxy`, `/drive/media-proxy`. |
+| HTTP routes | `auth.addHttpRoutes` for OAuth discovery and JWKS, plus the Drive routes listed under [Backend surface](#backend-surface). |
 | Convex Auth | The password provider (username and password), self-issued RS256 JWTs, and rotating refresh tokens. |
 | Actions | Drive token exchange and refresh, LiveKit room tokens, Giphy search, password resets, and push sends. |
 | Google Drive | Where the actual audio and video bytes live: one token set per account, plus a single class-archive token (`vaultDriveTokens`). |
+
+## Backend surface
+
+Every function the deployment exposes, and every HTTP route, read out of
+`src/convex/`.
+
+<!-- BEGIN GENERATED BACKEND -->
+**81 public functions**, 32
+internal helpers — 27 queries, 37 mutations and
+17 actions across 17 modules in `src/convex/`.
+
+| module | queries | mutations | actions | internal |
+| --- | --- | --- | --- | --- |
+| `admin.ts` | `hasAdminAccess`, `practiceLogEnabled`, `publicMode`, `gifsEnabled`, `listAccounts` | `claimAdminAccess`, `setPracticeLogEnabled`, `setPublicMode`, `setGifsEnabled`, `deleteAccount` | `verify`, `ensureAdminAccount`, `resetPassword` | `signedInIsAdmin`, `stampAdminRole`, `adminAccountExists`, `resetTarget` |
+| `attendance.ts` | `classAttendance` | `setMark`, `clearMark`, `addStudent`, `removeStudent`, `clearClassAttendance` | — | — |
+| `callState.ts` | `live` | `start`, `touch`, `end` | — | `session` |
+| `calls.ts` | — | — | `token` | — |
+| `chats.ts` | `people`, `myChats`, `unreadTotal`, `thread`, `details` | `ensureClassChat`, `ensureAllClassChats`, `createChat`, `addMembers`, `removeMember`, `rename`, `remove`, `send`, `markRead`, `setPinned`, `removeMessage`, `uploadUrl` | — | — |
+| `classes.ts` | `validateCode`, `myClasses`, `allClasses`, `viewerRole`, `classSheet` | `createClass`, `deleteClass`, `joinClass` | — | `joinOnSignUp` |
+| `drive.ts` | `status`, `files` | — | `authUrl`, `exchange`, `disconnect`, `startUpload`, `finishUpload`, `cancelUpload`, `fileUrl`, `disconnectVault`, `remove`, `browse`, `listSubtree` | `getTokens`, `saveTokens`, `createState`, `consumeState`, `peekState`, `getVaultTokens`, `saveVaultTokens`, `clearVaultTokens`, `viewerManagesClasses`, `forgetTokens`, `clearTokens`, `listFiles`, `recordFile`, `forgetFile`, `createGrant`, `grantFor`, `tokenForGrant`, `removeForOwner` |
+| `gifs.ts` | — | — | `search` | — |
+| `names.ts` | `needsFullName` | `setFullName` | — | — |
+| `passwords.ts` | — | — | — | `record` |
+| `practice.ts` | `classPractice` | `addEntry`, `removeEntry`, `importLocal` | — | — |
+| `push.ts` | `publicKey`, `devices` | `subscribe`, `unsubscribe` | — | `recipients`, `removeDead` |
+| `pushSend.ts` | — | — | — | `send` |
+| `tour.ts` | `pending` | `finish` | — | — |
+| `usernames.ts` | `isTaken` | — | — | — |
+| `users.ts` | `currentUser` | — | — | — |
+| `vault.ts` | `classMedia` | `addShared`, `renameShared` | `removeShared` | `removable`, `dropRow`, `byDriveFile`, `memberFor` |
+
+HTTP routes registered in `http.ts` (4):
+
+| method | path |
+| --- | --- |
+| OPTIONS | `/drive/upload-proxy` |
+| PUT | `/drive/upload-proxy` |
+| GET | `/drive/media-proxy` |
+| GET | `/drive/callback` |
+
+Generated from the source, so a new function or route appears here — or
+`npm run docs:data-model:check` fails.
+<!-- END GENERATED BACKEND -->
+
+## Pages
+
+<!-- BEGIN GENERATED PAGES -->
+The React Router tree in `src/main.tsx`, with the guard in front of each
+page.
+
+| path | page | who gets in |
+| --- | --- | --- |
+| `/` | `Landing` | public |
+| `/auth` | `AuthPage` | public |
+| `/dashboard` | `AppShell` | signed in |
+| `/dashboard` | `Dashboard` | signed in |
+| `/dashboard/practice` | `PracticeLog` | signed in |
+| `/dashboard/attendance` | `Attendance` | signed in |
+| `/dashboard/classes` | `Classes` | signed in |
+| `/dashboard/vault` | `MediaVault` | signed in |
+| `/dashboard/messages` | `Messages` | signed in |
+| `/dashboard/admin` | `Admin` | admin |
+| `/*` | `NotFound` | public |
+<!-- END GENERATED PAGES -->
 
 ## Flows worth knowing
 
@@ -117,6 +181,30 @@ This count is generated from the schema, not typed by hand.
 ## Tables
 
 Field-level detail, references and indexes: [data-model.md](data-model.md).
+
+## How this stays current
+
+The table count, the backend surface and the page list above are generated from
+the code — `src/convex/schema.ts`, `src/convex/*.ts` and `src/main.tsx` — and so
+is every diagram in [data-model.md](data-model.md).
+
+```bash
+npm run docs:data-model        # rewrite the generated sections and docs/diagrams.html
+npm run docs:data-model:check  # exit 1 when anything is stale
+```
+
+`check` runs before every commit, so a code change cannot land with stale docs.
+It compares the generated blocks against a fresh read of the source, and it
+compares each exported SVG against the diagram source stamped inside it
+(`<!-- source:… -->`). When a diagram has changed, re-export the images from
+`docs/diagrams.html` — press **Download SVG** on each card — and commit them
+with the change.
+
+Turn the hook on once per clone:
+
+```bash
+git config core.hooksPath .githooks
+```
 
 ## Secrets
 

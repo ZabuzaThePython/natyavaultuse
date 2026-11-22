@@ -28,7 +28,16 @@ Use bun for the package manager.
 
 The physical diagrams are split by domain (accounts, admin, classes, learning, media, chat) because 27 tables do not fit in one readable graph; each diagram names the tables it references from other domains instead of drawing them. The images in `docs/diagrams/` are exported from `docs/diagrams.html`.
 
-Schema changes reach the docs with `npm run docs:data-model`; `npm run docs:data-model:check` exits 1 when the docs or an exported SVG is stale.
+Those docs are generated from the code, not maintained by hand: the tables and fields come from `src/convex/schema.ts`, the function and route list from `src/convex/*.ts`, and the page list from `src/main.tsx`.
+
+```bash
+npm run docs:data-model        # rewrite the generated sections and docs/diagrams.html
+npm run docs:data-model:check  # exit 1 when anything is stale
+
+git config core.hooksPath .githooks   # once per clone: check runs before each commit
+```
+
+A code change that is not reflected in the docs fails `check`, and the pre-commit hook refuses the commit. If a diagram changed, re-export its image from `docs/diagrams.html` (**Download SVG** on the card) into `docs/diagrams/`; each image carries a stamp of the diagram source it came from, so a stale picture is caught the same way.
 
 ## Setup
 
