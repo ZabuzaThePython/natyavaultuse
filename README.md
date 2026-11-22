@@ -22,9 +22,9 @@ Use bun for the package manager.
 - [docs/architecture.md](docs/architecture.md) — hosting, the browser, the Convex deployment and the external services it talks to.
 - [docs/data-model.md](docs/data-model.md) — the conceptual entities first, then one ER diagram per domain, generated from `src/convex/schema.ts`.
 
-<img src="docs/diagrams/architecture.svg" alt="Architecture: browser, Convex deployment and external services" />
+<img src="docs/diagrams/architecture.png" alt="Architecture: browser, Convex deployment and external services" />
 
-<img src="docs/diagrams/conceptual-model.svg" alt="Conceptual data model: entities and their relationships" />
+<img src="docs/diagrams/conceptual-model.png" alt="Conceptual data model: entities and their relationships" />
 
 The physical diagrams are split by domain (accounts, admin, classes, learning, media, chat) because 27 tables do not fit in one readable graph; each diagram names the tables it references from other domains instead of drawing them. The images in `docs/diagrams/` are exported from `docs/diagrams.html`.
 
@@ -37,7 +37,7 @@ npm run docs:data-model:check  # exit 1 when anything is stale
 git config core.hooksPath .githooks   # once per clone: check runs before each commit
 ```
 
-A code change that is not reflected in the docs fails `check`, and the pre-commit hook refuses the commit. If a diagram changed, re-export its image from `docs/diagrams.html` (**Download SVG** on the card) into `docs/diagrams/`; each image carries a stamp of the diagram source it came from, so a stale picture is caught the same way.
+A code change that is not reflected in the docs fails `check`, and the pre-commit hook refuses the commit. If a diagram changed, re-export its image from `docs/diagrams.html` — **Download PNG** (what the Markdown shows) and **Download SVG** (the vector copy) — into `docs/diagrams/`; each SVG carries a stamp of the diagram source it came from, so a stale picture is caught the same way.
 
 ## Setup
 

@@ -319,7 +319,9 @@ function renderDataModel(diagrams, tables) {
       "",
       diagram.caption,
       "",
-      `<img src="diagrams/${diagram.id}.svg" alt="Entity relationship diagram: ${diagram.title.toLowerCase()}" />`,
+      `<img src="diagrams/${diagram.id}.png" alt="Entity relationship diagram: ${diagram.title.toLowerCase()}" />`,
+      "",
+      `Vector copy: [${diagram.id}.svg](diagrams/${diagram.id}.svg).`,
       "",
       "<details>",
       "<summary>Diagram source (Mermaid)</summary>",
@@ -532,7 +534,10 @@ function renderDiagramsHtml(diagrams) {
         <h2>${escapeHtml(diagram.title)}</h2>
         <p class="caption">${escapeHtml(diagram.caption)}</p>
       </div>
-      <button class="download" type="button">Download SVG</button>
+      <span class="actions">
+        <button class="download" type="button" data-format="png">Download PNG</button>
+        <button class="download" type="button" data-format="svg">Download SVG</button>
+      </span>
     </div>
     <pre class="mermaid">${escapeHtml(diagram.source)}</pre>
   </section>`,
@@ -562,6 +567,7 @@ function renderDiagramsHtml(diagrams) {
   section { margin: 0 0 32px; padding: 24px; background: var(--card);
     border: 1px solid var(--line); border-radius: 12px; overflow-x: auto; }
   pre.mermaid { margin: 0; text-align: center; }
+  .actions { display: flex; flex: none; gap: 8px; }
   button.download { flex: none; cursor: pointer; font: inherit; font-size: 13px;
     padding: 7px 12px; border-radius: 8px; border: 1px solid var(--line);
     background: var(--page); color: var(--ink); }
@@ -616,40 +622,75 @@ ${cards}
     return hash.toString(16).padStart(8, "0");
   }
 
+  // A standalone SVG with intrinsic size and a white background, so the file
+  // reads the same on a dark page as on a light one.
+  function prepared(id) {
+    const section = document.querySelector('section[data-id="' + id + '"]');
+    const drawn = section && section.querySelector("svg");
+    if (!drawn) return null;
+
+    const clone = drawn.cloneNode(true);
+    clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+    const box = (clone.getAttribute("viewBox") || "").split(/[\\s,]+/).map(Number);
+    const width = box.length === 4 && Number.isFinite(box[2]) ? box[2] : 1200;
+    const height = box.length === 4 && Number.isFinite(box[3]) ? box[3] : 800;
+    clone.setAttribute("width", width);
+    clone.setAttribute("height", height);
+    clone.removeAttribute("style");
+    const background = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    background.setAttribute("width", "100%");
+    background.setAttribute("height", "100%");
+    background.setAttribute("fill", "#ffffff");
+    clone.insertBefore(background, clone.firstChild);
+
+    const source = window.__sources.get(id) || "";
+    const text = '<?xml version="1.0" encoding="UTF-8"?>\\n<!-- source:' +
+      hashSource(source) + " -->\\n" + new XMLSerializer().serializeToString(clone);
+    return { text: text, width: width, height: height };
+  }
+
+  function save(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
+  }
+
   document.querySelectorAll("section[data-id] button.download").forEach(function (button) {
-    button.addEventListener("click", function () {
-      const section = button.closest("section");
-      const id = section.dataset.id;
-      const drawn = section.querySelector("svg");
-      if (!drawn) return;
+    button.addEventListener("click", async function () {
+      const id = button.closest("section").dataset.id;
+      const drawing = prepared(id);
+      if (!drawing) return;
 
-      const clone = drawn.cloneNode(true);
-      clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
-      const box = (clone.getAttribute("viewBox") || "").split(/[\\s,]+/).map(Number);
-      if (box.length === 4 && Number.isFinite(box[2])) {
-        clone.setAttribute("width", box[2]);
-        clone.setAttribute("height", box[3]);
+      if (button.dataset.format === "svg") {
+        save(new Blob([drawing.text], { type: "image/svg+xml" }), id + ".svg");
+        return;
       }
-      // Drop Mermaid's max-width style and paint a white background, so the
-      // file reads the same on a dark page as on a light one.
-      clone.removeAttribute("style");
-      const background = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-      background.setAttribute("width", "100%");
-      background.setAttribute("height", "100%");
-      background.setAttribute("fill", "#ffffff");
-      clone.insertBefore(background, clone.firstChild);
 
-      const source = window.__sources.get(id) || "";
-      const text = '<?xml version="1.0" encoding="UTF-8"?>\\n<!-- source:' +
-        hashSource(source) + " -->\\n" + new XMLSerializer().serializeToString(clone);
-      const url = URL.createObjectURL(new Blob([text], { type: "image/svg+xml" }));
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = id + ".svg";
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
+      // PNG is what the Markdown references: every viewer shows it, where SVG
+      // depends on the renderer. Up to 2x, capped at 2400px wide.
+      const svgUrl = URL.createObjectURL(new Blob([drawing.text], { type: "image/svg+xml" }));
+      const image = new Image();
+      await new Promise(function (resolve, reject) {
+        image.onload = resolve;
+        image.onerror = reject;
+        image.src = svgUrl;
+      });
+      const scale = Math.min(2, 2400 / drawing.width);
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(drawing.width * scale);
+      canvas.height = Math.round(drawing.height * scale);
+      const context = canvas.getContext("2d");
+      context.fillStyle = "#ffffff";
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      URL.revokeObjectURL(svgUrl);
+      const blob = await new Promise(function (resolve) { canvas.toBlob(resolve, "image/png"); });
+      if (blob) save(blob, id + ".png");
     });
   });
 </script>
@@ -703,6 +744,16 @@ async function auditSvgs(diagrams) {
     if (!found) results.push({ id: diagram.id, reason: "no source stamp" });
     else if (found[1] !== hashSource(diagram.source)) {
       results.push({ id: diagram.id, reason: "out of date" });
+    }
+
+    // The Markdown shows the PNG; the SVG beside it is the vector original.
+    // Both are exported together, so a missing one means the pair is stale.
+    const pngPath = join(SVG_DIR, `${diagram.id}.png`);
+    try {
+      const png = await readFile(pngPath);
+      if (png.length < 1024) results.push({ id: diagram.id, reason: "PNG is empty" });
+    } catch {
+      results.push({ id: diagram.id, reason: "PNG missing" });
     }
   }
   return results;

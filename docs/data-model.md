@@ -12,7 +12,9 @@ its media, its practice log, its attendance sheet, a hand-added roster and one
 chat room of its own; accounts also hold their own Drive connection, push
 devices and admin grant.
 
-<img src="diagrams/conceptual-model.svg" alt="Conceptual data model: entities and the relationships between them" />
+<img src="diagrams/conceptual-model.png" alt="Conceptual data model: entities and the relationships between them" />
+
+Vector copy: [conceptual-model.svg](diagrams/conceptual-model.svg).
 
 <details>
 <summary>Diagram source (Mermaid)</summary>
@@ -74,7 +76,9 @@ carries its Mermaid source, so the text is there when a renderer is not.
 
 Who can sign in. The `users` row is the account; everything else here is Convex Auth's own bookkeeping.
 
-<img src="diagrams/identity.svg" alt="Entity relationship diagram: accounts and auth" />
+<img src="diagrams/identity.png" alt="Entity relationship diagram: accounts and auth" />
+
+Vector copy: [identity.svg](diagrams/identity.svg).
 
 <details>
 <summary>Diagram source (Mermaid)</summary>
@@ -156,7 +160,9 @@ erDiagram
 
 The admin's own records: passwords captured at sign-up for the reset screen, the 90-day unlocks, and the deployment-wide feature switches. References outside this model: `users`.
 
-<img src="diagrams/admin.svg" alt="Entity relationship diagram: admin and settings" />
+<img src="diagrams/admin.png" alt="Entity relationship diagram: admin and settings" />
+
+Vector copy: [admin.svg](diagrams/admin.svg).
 
 <details>
 <summary>Diagram source (Mermaid)</summary>
@@ -192,7 +198,9 @@ erDiagram
 
 A class is created by a teacher and joined by students with its six-character code; `classStudents` holds names a teacher added by hand. References outside this model: `users`.
 
-<img src="diagrams/classes.svg" alt="Entity relationship diagram: classes and people" />
+<img src="diagrams/classes.png" alt="Entity relationship diagram: classes and people" />
+
+Vector copy: [classes.svg](diagrams/classes.svg).
 
 <details>
 <summary>Diagram source (Mermaid)</summary>
@@ -232,7 +240,9 @@ erDiagram
 
 The two per-class records students and teachers both read: marks per class day, and practice sessions. References outside this model: `users`.
 
-<img src="diagrams/learning.svg" alt="Entity relationship diagram: attendance and practice" />
+<img src="diagrams/learning.png" alt="Entity relationship diagram: attendance and practice" />
+
+Vector copy: [learning.svg](diagrams/learning.svg).
 
 <details>
 <summary>Diagram source (Mermaid)</summary>
@@ -269,7 +279,9 @@ erDiagram
 
 Metadata for every upload, the short-lived playback grants, and the Drive connections the bytes are actually stored in. References outside this model: `users`.
 
-<img src="diagrams/media.svg" alt="Entity relationship diagram: media and google drive" />
+<img src="diagrams/media.png" alt="Entity relationship diagram: media and google drive" />
+
+Vector copy: [media.svg](diagrams/media.svg).
 
 <details>
 <summary>Diagram source (Mermaid)</summary>
@@ -350,7 +362,9 @@ erDiagram
 
 Rooms, who sits in them, the messages, read markers, live calls, and the browsers that receive push. References outside this model: `users`.
 
-<img src="diagrams/chat.svg" alt="Entity relationship diagram: chat, calls and notifications" />
+<img src="diagrams/chat.png" alt="Entity relationship diagram: chat, calls and notifications" />
+
+Vector copy: [chat.svg](diagrams/chat.svg).
 
 <details>
 <summary>Diagram source (Mermaid)</summary>

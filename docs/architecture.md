@@ -4,7 +4,7 @@ One React SPA served from Freebuff Sites, and one Convex deployment that holds
 all state and every secret. Media bytes never touch Convex storage — they stay
 in Google Drive.
 
-<img src="diagrams/architecture.svg" alt="Architecture diagram: browser, Convex deployment and external services" />
+<img src="diagrams/architecture.png" alt="Architecture diagram: browser, Convex deployment and external services" />
 
 <details>
 <summary>Diagram source (Mermaid)</summary>
