@@ -19,6 +19,7 @@ const Dashboard = lazy(() => import("./pages/Dashboard.tsx"));
 const PracticeLog = lazy(() => import("./pages/PracticeLog.tsx"));
 const Attendance = lazy(() => import("./pages/Attendance.tsx"));
 const Classes = lazy(() => import("./pages/Classes.tsx"));
+const Studio = lazy(() => import("./pages/Studio.tsx"));
 const MediaVault = lazy(() => import("./pages/MediaVault.tsx"));
 const Admin = lazy(() => import("./pages/Admin.tsx"));
 const Messages = lazy(() => import("./pages/Messages.tsx"));
@@ -152,6 +153,7 @@ createRoot(document.getElementById("root")!).render(
                   <Route path="practice" element={<PracticeLog />} />
                   <Route path="attendance" element={<Attendance />} />
                   <Route path="classes" element={<Classes />} />
+                  <Route path="studio" element={<Studio />} />
                   <Route path="vault" element={<MediaVault />} />
                   <Route path="messages" element={<Messages />} />
                   <Route

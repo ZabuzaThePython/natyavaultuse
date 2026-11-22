@@ -523,13 +523,16 @@ export const ensureAllClassChats = mutation({
 
     // Only this studio's rooms: every class in the deployment would put another
     // school's rooms in this account's chat list.
-    const classes =
+    const found =
       scope?.kind === "studio"
         ? await ctx.db
             .query("classes")
             .withIndex("by_studio", (q) => q.eq("studioId", scope.studioId))
             .collect()
         : await ctx.db.query("classes").collect();
+    // The legacy fallback only covers classes from before studios.
+    const classes =
+      scope === null ? found.filter((row) => row.studioId === undefined) : found;
     let rooms = 0;
     for (const row of classes) {
       if ((await ensureRoom(ctx, row, me)) !== null) rooms++;

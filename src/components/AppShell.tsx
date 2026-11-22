@@ -1,5 +1,6 @@
 import { AddToHomeScreenDialog } from "@/components/AddToHomeScreenDialog";
 import { FullNamePrompt } from "@/components/full-name-prompt";
+import { StudioPrompt } from "@/components/studio-prompt";
 import { NotificationsPrompt } from "@/components/notifications-prompt";
 import { TourSpotlight } from "@/components/tour-spotlight";
 import { Om } from "@/components/Om";
@@ -41,7 +42,7 @@ import {
   useClasses,
   useViewerIsStaff,
 } from "@/lib/classes";
-import { useActiveStudio, useStudios } from "@/lib/studios";
+import { useActiveStudio, useMyStudio, useStudios } from "@/lib/studios";
 import { rememberAccount } from "@/lib/last-account";
 import { firstName } from "@/lib/display-name";
 import {
@@ -56,6 +57,7 @@ import { toast } from "sonner";
 import {
   CalendarCheck,
   Disc3,
+  GraduationCap,
   Layers,
   LayoutDashboard,
   LogOut,
@@ -79,6 +81,13 @@ const CLASSES_ITEM = {
   path: "/dashboard/classes",
   label: "Classes",
   icon: Layers,
+};
+
+/** The school above the classes: its teachers, join code and class list. */
+const STUDIO_ITEM = {
+  path: "/dashboard/studio",
+  label: "Studio",
+  icon: GraduationCap,
 };
 
 /**
@@ -339,6 +348,7 @@ export default function AppShell() {
   // is their own, and a student never sees this control at all.
   const { studioId: activeStudioId, setStudioId } = useActiveStudio();
   const { studios } = useStudios();
+  const myStudio = useMyStudio();
   useEffect(() => {
     if (!isPlatformAdmin || studios.length === 0) return;
     if (
@@ -444,7 +454,7 @@ export default function AppShell() {
   // with, so the entry would only be noise for them.
   const canManageClasses = isAdmin || viewerIsStaff;
   const navItems = canManageClasses
-    ? [...NAV_ITEMS, CLASSES_ITEM]
+    ? [...NAV_ITEMS, CLASSES_ITEM, STUDIO_ITEM]
     : NAV_ITEMS;
 
   // What can be opened from the switcher: the whole school for a teacher or
@@ -503,6 +513,18 @@ export default function AppShell() {
   const needsFullName = useQuery(api.names.needsFullName);
   const [nameAskedLater, setNameAskedLater] = useState(false);
   const showNamePrompt = needsFullName === true && !nameAskedLater;
+
+  // A teacher from before studios has classes that belong to no studio yet:
+  // one card asks them to name their school, and the server moves their classes
+  // and their students into it when they do (convex/studios.ts → createStudio).
+  const [studioAskedLater, setStudioAskedLater] = useState(false);
+  const showStudioPrompt =
+    !roleLoading &&
+    viewerIsStaff &&
+    !isPlatformAdmin &&
+    !myStudio.isLoading &&
+    myStudio.studio === null &&
+    !studioAskedLater;
 
   // A brand-new account gets the walkthrough once, straight after sign-up
   // (see convex/tour.ts). The deployment clears the flag, so it never returns.
@@ -737,12 +759,16 @@ export default function AppShell() {
         username={user?.email ?? ""}
         onClose={() => setNameAskedLater(true)}
       />
+      <StudioPrompt
+        open={showStudioPrompt}
+        onClose={() => setStudioAskedLater(true)}
+      />
       {/* Offered to an account that was just created. It stops offering
           itself once the app is installed, or once the steps have been waved
           away twice (see src/lib/install.ts). Held back while the name card is
           on screen so two first-run popups never stack. */}
       <AddToHomeScreenDialog
-        suppressed={showNamePrompt || showTour}
+        suppressed={showNamePrompt || showTour || showStudioPrompt}
         ready={firstRunSettled}
       />
       {/* Offered straight after those steps (or on launch of the installed

@@ -202,8 +202,47 @@ async function postBackfill() {
   ]);
 }
 
+async function narrowedFallback() {
+  console.log(
+    "\nthe fallback is narrowed (studio A exists, teacherB has no studio row)",
+  );
+  const ctx = ctxWith({
+    users: Object.values(USERS),
+    studios: [
+      { _id: "s_A", code: "STU111", name: "Studio A", folderName: "nvstudioa" },
+    ],
+    studioMembers: [
+      { _id: "sm_1", studioId: "s_A", userId: "u_teacherA", role: "owner" },
+    ],
+    classes: [
+      { _id: "c_A", code: "AAA111", name: "Class A", ownerId: "u_teacherA", studioId: "s_A" },
+      { _id: "c_L", code: "LLL111", name: "Old class", ownerId: "u_teacherB", studioId: undefined },
+    ],
+    classMembers: [],
+  });
+  const studioClass = (await ctx.db.get("c_A"))!;
+  const legacyClass = (await ctx.db.get("c_L"))!;
+
+  check(
+    "teacherB (no studio row) on studio A's class",
+    await classAccess(ctx, "u_teacherB", studioClass),
+    { read: false, staff: false, platform: false },
+  );
+  check(
+    "teacherB (no studio row) on a class with no studio",
+    await classAccess(ctx, "u_teacherB", legacyClass),
+    { read: true, staff: true, platform: false },
+  );
+  check(
+    "studentB (no studio row) on a class with no studio",
+    await classAccess(ctx, "u_studentB", legacyClass),
+    { read: false, staff: false, platform: false },
+  );
+}
+
 await preBackfill();
 await postBackfill();
+await narrowedFallback();
 
 console.log(
   failures.length === 0

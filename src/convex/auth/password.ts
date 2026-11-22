@@ -38,8 +38,13 @@ function cleanFullName(value: unknown): string {
  *
  * The teacher/student choice made on the sign-up card is stored on the user
  * row as `classRole` (sign-up only — sign-in never rewrites it), which is what
- * lets `classes.allClasses` show a teacher every class in the school while a
+ * lets `classes.allClasses` show a teacher their studio's classes while a
  * student only sees their own.
+ *
+ * A teacher also names a studio at sign-up — joining one by code, or founding
+ * one — because a teacher who belongs to no studio owns classes nobody can
+ * place. The studio is recorded server-side from that choice (see
+ * convex/studios.ts → studioOnSignUp), the same way a student's class is.
  */
 export const password = Password({
   // No minimum length — any non-empty password is accepted (the library
@@ -87,6 +92,25 @@ export const password = Password({
         ctx.scheduler.runAfter(0, internal.classes.joinOnSignUp, {
           username: normalized,
           classCode,
+        });
+      }
+      // Every teacher belongs to a studio from the start. `profile` cannot look
+      // the code up (it must stay synchronous), but it can insist that one was
+      // given: an account with neither a studio code nor a studio name is
+      // refused here rather than created belonging to nobody. The card has
+      // already checked that the code is a real studio (studios.validateCode).
+      if (params.role === "teacher") {
+        const studioCode = String(params.studioCode ?? "").trim();
+        const studioName = String(params.studioName ?? "").trim();
+        if (studioCode.length === 0 && studioName.length < 2) {
+          throw new Error(
+            "Choose a studio: join one with its code, or start one with a name.",
+          );
+        }
+        ctx.scheduler.runAfter(0, internal.studios.studioOnSignUp, {
+          username: normalized,
+          ...(studioCode.length > 0 ? { studioCode } : {}),
+          ...(studioName.length > 0 ? { studioName } : {}),
         });
       }
     }

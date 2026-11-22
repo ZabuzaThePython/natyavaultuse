@@ -217,6 +217,19 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
         setError("Give your studio a name — it is what your classes show.");
         return;
       }
+      if (studioMode === "join") {
+        // Checked again on submit so a cached answer can't let a dead code in:
+        // a teacher account must never be created belonging to no studio.
+        const check = await convex.query(api.studios.validateCode, {
+          code: normalizedStudioCode,
+        });
+        if (!check.ok) {
+          setError(
+            "That studio code doesn't match any studio — check it with your school.",
+          );
+          return;
+        }
+      }
     }
     if (needsClassCode) {
       if (normalizedCode.length !== 6) {
@@ -293,6 +306,13 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
         classCode: normalizedCode,
         // Sign-up only — signing in never rewrites the stored name.
         ...(mode === "signUp" ? { fullName } : {}),
+        // The studio a teacher's account belongs to, recorded server-side by
+        // the password provider (see convex/studios.ts → studioOnSignUp).
+        ...(needsStudio
+          ? studioMode === "join"
+            ? { studioCode: normalizedStudioCode }
+            : { studioName: studioName.trim() }
+          : {}),
       });
       // Remember who signed in here: opening NatyaVault again should come
       // back to this account, not to a blank "who are you?" (see

@@ -26,6 +26,12 @@ account, or an account that owns a class) whenever an account has no studio row.
 Drive archive check use the same fallback. Once the backfill has run, every
 account has a scope and the fallback is never consulted.
 
+The fallback is **narrowed to classes that have no `studioId`**. A class that
+belongs to a studio is reachable only through that studio, so a teacher with no
+studio row cannot open another school's class — the old rule revives access to
+unplaced classes, not a global key. `allClasses` and the class-room sweep filter
+their lists the same way.
+
 `scripts/check-studio-access.ts` exercises the real rule with an in-memory
 database in both states — before the backfill (teacher, student, admin) and after
 it (two studios) — and prints a pass/fail line per case.
@@ -284,15 +290,34 @@ the way it is today.
 step (`classes.joinOnSignUp`, scheduled from the password provider, exactly as it
 works now).
 
-**Teacher** — two paths on the sign-up card:
+**Teacher** — two paths on the sign-up card, and one is required:
 
-- *Join a studio*: enter the studio's six-character code → `studioMembers` row with
-  role `teacher`.
-- *Start a studio*: enter a studio name → `studios` row, owner = them, plus
-  `studioMembers` row with role `owner`. They land on an empty studio with a
-  "create your first class" card.
+- *Join a studio*: enter the studio's six-character code. The card validates it
+  (`studios.validateCode`) before the account is created and **refuses to
+  create a teacher with a code that matches nothing**; the password provider
+  also refuses a teacher sign-up that carries neither a code nor a name, so no
+  account can exist belonging to no studio.
+- *Start a studio*: enter a studio name → `studios` row, owner = them.
+
+Either way the placement itself is recorded server-side, from the choice the
+provider was given (`studios.studioOnSignUp`, scheduled the same way a student's
+class join is), because a call from the card can beat the new session's token.
 
 The platform admin can flip `joinOpen` off on a studio whose code leaked.
+
+## Teachers from before studios
+
+A teacher who was already running classes without a studio row gets a **Name
+your studio** card in the app (dismissible with *Later*, back next visit).
+Creating the studio there does more than add a row: `createStudioFor` adopts
+every class the teacher owns that has no `studioId`, and puts each student in
+those classes into the new studio as well, so nobody is left in a class that
+belongs to no school. Newly signed-up teachers never see the card — their studio
+is set at sign-up.
+
+`scripts/check-studio-access.ts` covers this too: a teacher with no studio row
+is refused a studio-owned class, still reaches an unplaced one, and a teacher in
+one studio never reaches another's.
 
 ## What the studio owner gets
 
@@ -355,7 +380,7 @@ Re-running is safe: steps skip rows that already carry the field.
 |---|---|---|---|
 | 1 | **Built.** Schema, `scopeFor` / `classAccess`, all call sites, backfill, admin studio picker | `schema.ts`, new `codes.ts`, `studios.ts`, `migrations.ts`, `classes.ts`, `practice.ts`, `attendance.ts`, `vault.ts`, `chats.ts`, `drive.ts`, `lib/studios.ts`, `AppShell.tsx` | the security change — one commit, reviewed as a whole |
 | 2 | **Built.** Sign-up: a teacher enters a studio code or a new studio's name; a student's class code already names the studio | `pages/Auth.tsx`, `studios.validateCode`, `createStudio`, `joinStudio` | touches account creation, so it needs a fresh-account test |
-| 3 | Studio page, teacher management, class list per studio | `pages/Studio.tsx`, `main.tsx`, `components/AppShell.tsx`, `studios.ts` | UI only |
+| 3 | **Built.** Studio page: rename, join code, teachers (add by username, remove), the studio's classes | `pages/Studio.tsx`, `main.tsx`, `AppShell.tsx`, `studios.ts` (`studioOverview`, `addTeacher`, `removeTeacher`), `components/studio-prompt.tsx` | low |
 | 4 | **Folder half built**: `startUpload` takes the class code, `studios.folderForClass` resolves the studio, `ensureFolder` creates or adopts `nv…`, and `driveFolderId` is cached on the studio. Still to do: the `mediaStore` seam so R2 is one new module | `drive.ts`, `studios.ts`, `lib/drive.ts`, `pages/MediaVault.tsx` | low — the existing archive is adopted as-is |
 | 5 | Platform admin: studio list, suspend | `admin.ts`, `pages/Admin.tsx` | low |
 

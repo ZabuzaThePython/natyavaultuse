@@ -127,6 +127,8 @@ export const allClasses = query({
     if (scope === null ? !legacy : scope.kind === "student") return closed;
 
     const platform = scope?.kind === "platform";
+    // The legacy fallback only reaches classes that predate studios, so the list
+    // matches exactly what those accounts are allowed to open.
     const target =
       scope?.kind === "platform"
         ? studioId
@@ -137,13 +139,15 @@ export const allClasses = query({
 
     // No studio picked by the operator: every studio's classes, which is what
     // this list showed before studios existed.
-    const rows =
+    const found =
       target === undefined
         ? await ctx.db.query("classes").collect()
         : await ctx.db
             .query("classes")
             .withIndex("by_studio", (q) => q.eq("studioId", target))
             .collect();
+    const rows =
+      scope === null ? found.filter((row) => row.studioId === undefined) : found;
     // One pass over the membership table instead of a read per class.
     const members = await ctx.db.query("classMembers").collect();
     const counts = new Map<string, number>();

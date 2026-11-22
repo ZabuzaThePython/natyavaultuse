@@ -1,5 +1,6 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { v } from "convex/values";
+import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
   internalMutation,
@@ -10,6 +11,7 @@ import {
   type QueryCtx,
 } from "./_generated/server";
 import { findClass, findStudio, generateCode } from "./codes";
+
 
 /**
  * Studios: the tenant above a class.
@@ -147,6 +149,13 @@ export async function classAccess(
   if (scope === null) {
     // Before the backfill nobody has a studio row: fall back to the rule that
     // was in force before studios, so the deploy locks nobody out.
+    //
+    // Narrowly: only a class that predates studios (no `studioId`) can be
+    // reached this way. A class that belongs to a studio is that studio's, and
+    // an account with no studio row has no claim on it.
+    if (row.studioId !== undefined) {
+      return { read: false, staff: false, platform: false };
+    }
     if (await legacyStaff(ctx, userId)) {
       return { read: true, staff: true, platform: false };
     }
@@ -357,13 +366,17 @@ export const listStudios = query({
  */
 export const createStudio = mutation({
   args: { name: v.string() },
-  handler: async (
-    ctx,
-    { name },
-  ): Promise<{ ok: boolean; error: string | null; code: string | null; id: Id<"studios"> | null }> => {
+  handler: async (ctx, { name }): Promise<StudioCreation> => {
     const userId = await getAuthUserId(ctx);
     if (userId === null) {
-      return { ok: false, error: "Sign in first.", code: null, id: null };
+      return {
+        ok: false,
+        error: "Sign in first.",
+        code: null,
+        id: null,
+        adoptedClasses: 0,
+        adoptedStudents: 0,
+      };
     }
     const platform = await isPlatformAdmin(ctx, userId);
     if (!platform) {
@@ -374,6 +387,8 @@ export const createStudio = mutation({
           error: "Only a teacher can start a studio.",
           code: null,
           id: null,
+          adoptedClasses: 0,
+          adoptedStudents: 0,
         };
       }
       const existing = await membershipFor(ctx, userId);
@@ -383,43 +398,167 @@ export const createStudio = mutation({
           error: "You already belong to a studio.",
           code: null,
           id: null,
+          adoptedClasses: 0,
+          adoptedStudents: 0,
         };
       }
     }
 
-    const clean = cleanName(name);
-    if (clean.length < 2) {
-      return { ok: false, error: "Give the studio a name.", code: null, id: null };
-    }
-    const code = await freeStudioCode(ctx);
-    if (code === null) {
-      return {
-        ok: false,
-        error: "Couldn't find a free studio code. Try again.",
-        code: null,
-        id: null,
-      };
-    }
-    const folderName = await uniqueFolderName(ctx, folderNameFor(clean));
-    const me = await ctx.db.get(userId);
-    const ownerName = me?.name ?? me?.email ?? "teacher";
+    return await createStudioFor(ctx, { userId, name });
+  },
+});
 
-    const id = await ctx.db.insert("studios", {
-      code,
-      name: clean,
-      ownerId: userId,
-      ownerName,
-      folderName,
-      joinOpen: true,
-      createdAt: Date.now(),
-    });
-    await addStudioMember(ctx, {
-      studioId: id,
-      userId,
-      role: "owner",
-      name: ownerName,
-    });
-    return { ok: true, error: null, code, id };
+export interface StudioCreation {
+  ok: boolean;
+  error: string | null;
+  code: string | null;
+  id: Id<"studios"> | null;
+  /** Classes this teacher already ran that had no studio yet. */
+  adoptedClasses: number;
+  /** Students in those classes, placed in the new studio. */
+  adoptedStudents: number;
+}
+
+/**
+ * Create a studio owned by `userId`, and bring their existing school with it.
+ *
+ * A teacher who was teaching before studios existed has classes with no
+ * `studioId`; founding their studio adopts those classes and puts every student
+ * in them into the studio, so nobody is left stranded outside one. Classes that
+ * already belong to a studio are left alone — they are somebody else's.
+ */
+export async function createStudioFor(
+  ctx: MutationCtx,
+  { userId, name }: { userId: Id<"users">; name: string },
+): Promise<StudioCreation> {
+  const clean = cleanName(name);
+  if (clean.length < 2) {
+    return {
+      ok: false,
+      error: "Give the studio a name.",
+      code: null,
+      id: null,
+      adoptedClasses: 0,
+      adoptedStudents: 0,
+    };
+  }
+  const code = await freeStudioCode(ctx);
+  if (code === null) {
+    return {
+      ok: false,
+      error: "Couldn't find a free studio code. Try again.",
+      code: null,
+      id: null,
+      adoptedClasses: 0,
+      adoptedStudents: 0,
+    };
+  }
+  const folderName = await uniqueFolderName(ctx, folderNameFor(clean));
+  const me = await ctx.db.get(userId);
+  const ownerName = me?.name ?? me?.email ?? "teacher";
+
+  const id = await ctx.db.insert("studios", {
+    code,
+    name: clean,
+    ownerId: userId,
+    ownerName,
+    folderName,
+    joinOpen: true,
+    createdAt: Date.now(),
+  });
+  await addStudioMember(ctx, {
+    studioId: id,
+    userId,
+    role: "owner",
+    name: ownerName,
+  });
+
+  // The school they were already running comes along.
+  const owned = await ctx.db
+    .query("classes")
+    .withIndex("by_owner", (q) => q.eq("ownerId", userId))
+    .collect();
+  let adoptedStudents = 0;
+  let adoptedClasses = 0;
+  for (const row of owned) {
+    if (row.studioId !== undefined) continue;
+    await ctx.db.patch(row._id, { studioId: id });
+    adoptedClasses++;
+    const members = await ctx.db
+      .query("classMembers")
+      .withIndex("by_code", (q) => q.eq("code", row.code))
+      .collect();
+    for (const member of members) {
+      if ((await membershipFor(ctx, member.userId)) !== null) continue;
+      const account = await ctx.db.get(member.userId);
+      await addStudioMember(ctx, {
+        studioId: id,
+        userId: member.userId,
+        role: "student",
+        name: account?.name ?? account?.email ?? "dancer",
+      });
+      adoptedStudents++;
+    }
+  }
+
+  return {
+    ok: true,
+    error: null,
+    code,
+    id,
+    adoptedClasses,
+    adoptedStudents,
+  };
+}
+
+/**
+ * Put a brand-new teacher into the studio they chose at sign-up.
+ *
+ * The password provider cannot create the studio itself (its `profile` hook is
+ * synchronous and the account does not exist yet), so it records the choice and
+ * schedules this, exactly as `classes.joinOnSignUp` does for a student. If the
+ * users row is not visible yet it waits and retries.
+ */
+export const studioOnSignUp = internalMutation({
+  args: {
+    username: v.string(),
+    studioCode: v.optional(v.string()),
+    studioName: v.optional(v.string()),
+    attempt: v.optional(v.number()),
+  },
+  handler: async (ctx, { username, studioCode, studioName, attempt }) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("email", (q) => q.eq("email", username.trim().toLowerCase()))
+      .unique();
+    if (user === null) {
+      const tries = attempt ?? 0;
+      if (tries >= 6) return;
+      await ctx.scheduler.runAfter(
+        400 * (tries + 1),
+        internal.studios.studioOnSignUp,
+        { username, studioCode, studioName, attempt: tries + 1 },
+      );
+      return;
+    }
+    // Already placed (a retry, or the sign-up card got there first).
+    if ((await membershipFor(ctx, user._id)) !== null) return;
+
+    if (studioCode) {
+      const row = await findStudio(ctx, studioCode);
+      if (row === null || row.suspendedAt !== undefined || !row.joinOpen) return;
+      await addStudioMember(ctx, {
+        studioId: row._id,
+        userId: user._id,
+        role: "teacher",
+        name: user.name ?? user.email ?? "teacher",
+      });
+      return;
+    }
+
+    if (studioName && studioName.trim().length >= 2) {
+      await createStudioFor(ctx, { userId: user._id, name: studioName });
+    }
   },
 });
 
@@ -515,6 +654,210 @@ export const renameStudio = mutation({
     if (clean.length < 2) return { ok: false, error: "Give the studio a name." };
 
     await ctx.db.patch(studioId, { name: clean });
+    return { ok: true, error: null };
+  },
+});
+
+interface StudioOverview {
+  ok: boolean;
+  isPlatformAdmin: boolean;
+  isOwner: boolean;
+  studio: {
+    id: Id<"studios">;
+    name: string;
+    code: string;
+    folderName: string;
+    joinOpen: boolean;
+    ownerName: string;
+  } | null;
+  teachers: {
+    id: Id<"users">;
+    name: string;
+    role: StudioRole;
+    ownsClasses: boolean;
+  }[];
+  classes: { code: string; name: string; ownerName: string; members: number }[];
+}
+
+/** The studio a staff account manages: its own, or the operator's first one. */
+async function studioForStaff(
+  ctx: QueryCtx | MutationCtx,
+  userId: Id<"users">,
+): Promise<{ studio: Doc<"studios">; platform: boolean } | null> {
+  const scope = await scopeFor(ctx, userId);
+  if (scope === null || scope.kind === "student") return null;
+  const studioId =
+    scope.kind === "platform"
+      ? (await ctx.db.query("studios").first())?._id
+      : scope.studioId;
+  if (studioId === undefined) return null;
+  const studio = await ctx.db.get(studioId);
+  if (studio === null) return null;
+  return { studio, platform: scope.kind === "platform" };
+}
+
+/**
+ * The studio page: its name, its join code, its teachers and its classes.
+ *
+ * Readable by the studio's staff; a student gets `ok: false`, so a class code
+ * never turns into a list of the school's accounts.
+ */
+export const studioOverview = query({
+  args: {},
+  handler: async (ctx): Promise<StudioOverview> => {
+    const closed: StudioOverview = {
+      ok: false,
+      isPlatformAdmin: false,
+      isOwner: false,
+      studio: null,
+      teachers: [],
+      classes: [],
+    };
+    const userId = await getAuthUserId(ctx);
+    if (userId === null) return closed;
+
+    const found = await studioForStaff(ctx, userId);
+    if (found === null) return closed;
+    const { studio, platform } = found;
+
+    const teachers = await ctx.db
+      .query("studioMembers")
+      .withIndex("by_studio", (q) => q.eq("studioId", studio._id))
+      .collect();
+    const classes = await ctx.db
+      .query("classes")
+      .withIndex("by_studio", (q) => q.eq("studioId", studio._id))
+      .collect();
+    const members = await ctx.db.query("classMembers").collect();
+
+    const counts = new Map<string, number>();
+    for (const member of members) {
+      counts.set(member.code, (counts.get(member.code) ?? 0) + 1);
+    }
+    const owners = new Set(classes.map((row) => row.ownerId));
+
+    return {
+      ok: true,
+      isPlatformAdmin: platform,
+      isOwner: platform || studio.ownerId === userId,
+      studio: {
+        id: studio._id,
+        name: studio.name,
+        code: studio.code,
+        folderName: studio.folderName,
+        joinOpen: studio.joinOpen,
+        ownerName: studio.ownerName,
+      },
+      teachers: teachers
+        .filter((row) => row.role !== "student")
+        .map((row) => ({
+          id: row.userId,
+          name: row.name,
+          role: row.role,
+          ownsClasses: owners.has(row.userId),
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+      classes: classes
+        .map((row) => ({
+          code: row.code,
+          name: row.name,
+          ownerName: row.ownerName,
+          members: counts.get(row.code) ?? 0,
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    };
+  },
+});
+
+/** Add a teacher to the studio by their username. Its owner, or the admin. */
+export const addTeacher = mutation({
+  args: { username: v.string() },
+  handler: async (
+    ctx,
+    { username },
+  ): Promise<{ ok: boolean; error: string | null; name: string | null }> => {
+    const me = await getAuthUserId(ctx);
+    if (me === null) return { ok: false, error: "Sign in first.", name: null };
+
+    const found = await studioForStaff(ctx, me);
+    if (found === null) return { ok: false, error: "You are not in a studio.", name: null };
+    const { studio, platform } = found;
+    if (!platform && studio.ownerId !== me) {
+      return { ok: false, error: "Only the studio's owner can add teachers.", name: null };
+    }
+
+    const handle = username.trim().toLowerCase().replace(/^@/, "");
+    if (!handle) return { ok: false, error: "Type their username.", name: null };
+    const account = await ctx.db
+      .query("users")
+      .withIndex("email", (q) => q.eq("email", handle))
+      .unique();
+    if (account === null) {
+      return { ok: false, error: "No account has that username.", name: null };
+    }
+
+    const existing = await membershipFor(ctx, account._id);
+    if (existing !== null && existing.studioId !== studio._id) {
+      return {
+        ok: false,
+        error: "They already belong to another studio.",
+        name: null,
+      };
+    }
+    const name = account.name ?? account.email ?? "teacher";
+    await addStudioMember(ctx, {
+      studioId: studio._id,
+      userId: account._id,
+      role: existing?.role === "owner" ? "owner" : "teacher",
+      name,
+    });
+    return { ok: true, error: null, name };
+  },
+});
+
+/**
+ * Take a teacher out of the studio. Its owner, or the admin.
+ *
+ * Refused for the owner themselves, and for anyone who still owns classes
+ * here — their classes would be left in a studio they are no longer in.
+ */
+export const removeTeacher = mutation({
+  args: { userId: v.id("users") },
+  handler: async (
+    ctx,
+    { userId: targetId },
+  ): Promise<{ ok: boolean; error: string | null }> => {
+    const me = await getAuthUserId(ctx);
+    if (me === null) return { ok: false, error: "Sign in first." };
+
+    const found = await studioForStaff(ctx, me);
+    if (found === null) return { ok: false, error: "You are not in a studio." };
+    const { studio, platform } = found;
+    if (!platform && studio.ownerId !== me) {
+      return { ok: false, error: "Only the studio's owner can remove teachers." };
+    }
+    if (targetId === studio.ownerId) {
+      return { ok: false, error: "The studio's owner cannot be removed." };
+    }
+
+    const owned = await ctx.db
+      .query("classes")
+      .withIndex("by_owner", (q) => q.eq("ownerId", targetId))
+      .collect();
+    if (owned.some((row) => row.studioId === studio._id)) {
+      return {
+        ok: false,
+        error: "They still own classes here — move or delete those first.",
+      };
+    }
+
+    const row = await ctx.db
+      .query("studioMembers")
+      .withIndex("by_studio_user", (q) =>
+        q.eq("studioId", studio._id).eq("userId", targetId),
+      )
+      .unique();
+    if (row !== null) await ctx.db.delete(row._id);
     return { ok: true, error: null };
   },
 });
