@@ -482,10 +482,14 @@
     maxTextSize: 400000,
     maxEdges: 2000,
     theme: window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "default",
+    // Real <text> labels, not <foreignObject>: the HTML kind is dropped by
+    // ImageMagick, Inkscape, Visual Studio Code's image view and some SVG
+    // sanitisers, which leaves a diagram of empty boxes.
+    htmlLabels: false,
     // Draw at natural size and let the card scroll: an ER diagram squeezed to
     // the column width is unreadable.
-    flowchart: { useMaxWidth: false },
-    er: { useMaxWidth: false },
+    flowchart: { useMaxWidth: false, htmlLabels: false },
+    er: { useMaxWidth: false, htmlLabels: false },
   });
 
   function hashSource(text) {
