@@ -21,6 +21,7 @@ Use bun for the package manager.
 
 - [docs/architecture.md](docs/architecture.md) — hosting, the browser, the Convex deployment and the external services it talks to.
 - [docs/data-model.md](docs/data-model.md) — the conceptual entities first, then one ER diagram per domain, generated from `src/convex/schema.ts`.
+- [docs/studios.md](docs/studios.md) — the design for running several studios (schools) on one deployment: the tenancy boundary, the schema it adds, the access rule that replaces "sees every class", the backfill, and the phases.
 
 <img src="docs/diagrams/architecture.png" alt="Architecture: browser, Convex deployment and external services" />
 
