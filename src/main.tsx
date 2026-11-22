@@ -57,23 +57,41 @@ class ToolbarErrorBoundary extends React.Component<
 /** Hard guard so runtime errors never leave the preview as a blank page. */
 class RootErrorBoundary extends React.Component<
   { children: React.ReactNode },
-  { hasError: boolean; message: string; stack: string }
+  { hasError: boolean; message: string; stack: string; reloading: boolean }
 > {
-  state = { hasError: false, message: "", stack: "" };
+  state = { hasError: false, message: "", stack: "", reloading: false };
   static getDerivedStateFromError(error: Error) {
     return {
       hasError: true,
       message: error.message || "Unknown runtime error",
       stack: error.stack || "",
+      // Decided here, not in componentDidCatch: a redeploy should render the
+      // quiet updating screen on the very first commit. Reporting it after the
+      // crash layout had already painted flashed the error for a frame.
+      reloading: isStaleChunkError(error),
     };
   }
   componentDidCatch(err: Error) {
     console.error("[Preview] Root crash:", err);
     // A redeploy is not a crash: this tab is holding an older build's file
     // names, so it reloads onto the current one instead of showing an error.
-    if (isStaleChunkError(err) && reloadForUpdate()) return;
+    if (!isStaleChunkError(err)) return;
+    if (!reloadForUpdate()) {
+      // A reload was already tried moments ago and the file is still missing:
+      // say so on the card rather than refreshing for ever.
+      this.setState({ reloading: false });
+    }
   }
   render() {
+    if (this.state.hasError && this.state.reloading) {
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-background p-6">
+          <p className="animate-pulse text-sm text-muted-foreground">
+            Updating NatyaVault…
+          </p>
+        </div>
+      );
+    }
     if (this.state.hasError) {
       return (
         <div className="min-h-screen flex items-center justify-center bg-background text-foreground p-6">

@@ -35,13 +35,19 @@ export class ChunkUpdateBoundary extends React.Component<
   };
 
   static getDerivedStateFromError(error: unknown) {
-    return { error };
+    // Decided here so the first paint after the failure is already the quiet
+    // updating screen: setting it from componentDidCatch rendered the card for
+    // a frame before the reload started.
+    return { error, reloading: isStaleChunkError(error) };
   }
 
   componentDidCatch(error: unknown) {
     // Only a redeploy is automatic; a real crash belongs on screen.
-    if (isStaleChunkError(error) && reloadForUpdate()) {
-      this.setState({ reloading: true });
+    if (!isStaleChunkError(error)) return;
+    if (!reloadForUpdate()) {
+      // The file is still missing after an attempt moments ago: show the card
+      // instead of reloading again.
+      this.setState({ reloading: false });
     }
   }
 

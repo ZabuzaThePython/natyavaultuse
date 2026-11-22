@@ -36,12 +36,13 @@ export function isStaleChunkError(error: unknown): boolean {
       : String(error ?? "")
   ).toLowerCase();
   return (
+    // Chrome, Edge and Safari: the file is gone, or served as HTML instead.
     message.includes("failed to fetch dynamically imported module") ||
+    // Firefox's wording, and Safari's when the script itself fails to load.
     message.includes("error loading dynamically imported module") ||
     message.includes("importing a module script failed") ||
-    message.includes("expected a javascript module script") ||
-    // Safari's wording when the chunk is gone.
-    message.includes("importing a module script failed")
+    // What Chrome says when the host answers a missing asset with index.html.
+    message.includes("expected a javascript module script")
   );
 }
 
