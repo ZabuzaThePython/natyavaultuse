@@ -253,8 +253,13 @@ async function join(
  * student never sees the studio's account list.
  */
 export const people = query({
-  args: { chatId: v.optional(v.id("chats")) },
-  handler: async (ctx, { chatId }) => {
+  // The platform admin picks which studio to look at; a teacher's own studio is
+  // implied and cannot be widened by passing another studio's id.
+  args: {
+    chatId: v.optional(v.id("chats")),
+    studioId: v.optional(v.id("studios")),
+  },
+  handler: async (ctx, { chatId, studioId }) => {
     const me = await viewer(ctx);
     if (me === null) return { ok: false, groups: [] };
     const scope = await scopeFor(ctx, me._id);
@@ -268,29 +273,39 @@ export const people = query({
     const classCode = chatId ? (await ctx.db.get(chatId))?.classCode : undefined;
     const inRoomClass = classCode ? await classRoster(ctx, classCode) : null;
 
-    // A studio's staff chats with its own people; the platform admin with
-    // everyone.
-    const allowed =
+    // The studio whose people may be picked: the caller's own, or — for the
+    // platform admin — the one on screen. Without a picked studio the operator
+    // keeps the deployment-wide list.
+    const wantedStudio =
       scope?.kind === "studio"
-        ? await studioMemberIds(ctx, scope.studioId)
-        : null;
+        ? scope.studioId
+        : scope?.kind === "platform"
+          ? studioId
+          : undefined;
+
+    // A studio's staff chats with its own people; the platform admin with
+    // everyone in the studio they are viewing.
+    const allowed =
+      wantedStudio === undefined
+        ? null
+        : await studioMemberIds(ctx, wantedStudio);
 
     const users = await ctx.db.query("users").collect();
     const classes =
-      scope?.kind === "studio"
-        ? await ctx.db
+      wantedStudio === undefined
+        ? await ctx.db.query("classes").collect()
+        : await ctx.db
             .query("classes")
-            .withIndex("by_studio", (q) => q.eq("studioId", scope.studioId))
-            .collect()
-        : await ctx.db.query("classes").collect();
+            .withIndex("by_studio", (q) => q.eq("studioId", wantedStudio))
+            .collect();
     const memberships = await ctx.db.query("classMembers").collect();
 
     // Who counts as staff here: this studio's teachers and class owners.
     const staffIds = new Set<Id<"users">>();
-    if (scope?.kind === "studio") {
+    if (wantedStudio !== undefined) {
       const rows = await ctx.db
         .query("studioMembers")
-        .withIndex("by_studio", (q) => q.eq("studioId", scope.studioId))
+        .withIndex("by_studio", (q) => q.eq("studioId", wantedStudio))
         .collect();
       for (const row of rows) {
         if (row.role !== "student") staffIds.add(row.userId);
@@ -360,14 +375,42 @@ export const people = query({
 });
 
 /**
+ * A test for "does this class room belong to the studio on screen?".
+ *
+ * Only the platform admin crosses studios, so only their chat list is narrowed
+ * by the studio picked in the shell: a teacher's rooms are already limited to
+ * their own studio by `chatAccess`. `undefined` means no studio was picked (or
+ * this account never picks one), and keeps the deployment-wide answer.
+ */
+async function studioRoomFilter(
+  ctx: QueryCtx | MutationCtx,
+  me: Doc<"users">,
+  studioId: Id<"studios"> | undefined,
+): Promise<((classCode: string | undefined) => Promise<boolean>) | null> {
+  if (studioId === undefined) return null;
+  const scope = await scopeFor(ctx, me._id);
+  if (scope?.kind !== "platform") return null;
+  return async (classCode) => {
+    // The operator's own group and solo chats carry no class: always theirs.
+    if (!classCode) return true;
+    const row = await findClass(ctx, classCode);
+    // A class that predates studios belongs to none, so keep it visible.
+    return row === null || row.studioId === undefined || row.studioId === studioId;
+  };
+}
+
+/**
  * The chats this account is in, newest activity first, with the unread count
  * and the names of everyone else.
  */
 export const myChats = query({
-  args: {},
-  handler: async (ctx) => {
+  // The platform admin looks at one studio at a time: only that studio's class
+  // rooms belong in the list. Their own group chats have no class and stay.
+  args: { studioId: v.optional(v.id("studios")) },
+  handler: async (ctx, { studioId }) => {
     const me = await viewer(ctx);
     if (me === null) return [];
+    const roomInStudio = await studioRoomFilter(ctx, me, studioId);
 
     const mine = await ctx.db
       .query("chatMembers")
@@ -379,6 +422,9 @@ export const myChats = query({
       const access = await chatAccess(ctx, row.chatId, me);
       if (access === null) continue;
       const chat = access.chat;
+      if (roomInStudio !== null && !(await roomInStudio(chat.classCode))) {
+        continue;
+      }
       const members = await membersOf(ctx, chat._id);
       const since = await readMarker(ctx, chat._id, me._id);
       chats.push({
@@ -409,10 +455,13 @@ export const myChats = query({
 
 /** Everything the header badge needs. */
 export const unreadTotal = query({
-  args: {},
-  handler: async (ctx) => {
+  // Same studio narrowing as `myChats`, so the badge counts only what the
+  // operator can see in the studio they are viewing.
+  args: { studioId: v.optional(v.id("studios")) },
+  handler: async (ctx, { studioId }) => {
     const me = await viewer(ctx);
     if (me === null) return 0;
+    const roomInStudio = await studioRoomFilter(ctx, me, studioId);
     const mine = await ctx.db
       .query("chatMembers")
       .withIndex("by_user", (q) => q.eq("userId", me._id))
@@ -422,6 +471,9 @@ export const unreadTotal = query({
       // A frozen room must not show up in the badge — nothing new is readable.
       const access = await chatAccess(ctx, row.chatId, me);
       if (access === null || access.readOnly) continue;
+      if (roomInStudio !== null && !(await roomInStudio(access.chat.classCode))) {
+        continue;
+      }
       const since = await readMarker(ctx, row.chatId, me._id);
       total += await unreadSince(ctx, row.chatId, me._id, since);
     }
@@ -516,8 +568,10 @@ export const ensureClassChat = mutation({
  * joined.
  */
 export const ensureAllClassChats = mutation({
-  args: {},
-  handler: async (ctx): Promise<{ ok: boolean; rooms: number }> => {
+  // The platform admin opens the rooms of the studio on screen; a teacher's own
+  // studio is implied.
+  args: { studioId: v.optional(v.id("studios")) },
+  handler: async (ctx, { studioId }): Promise<{ ok: boolean; rooms: number }> => {
     const me = await viewer(ctx);
     if (me === null) return { ok: false, rooms: 0 };
     const scope = await scopeFor(ctx, me._id);
@@ -527,14 +581,21 @@ export const ensureAllClassChats = mutation({
     }
 
     // Only this studio's rooms: every class in the deployment would put another
-    // studio's rooms in this account's chat list.
-    const found =
+    // studio's rooms in this account's chat list. The platform admin opens the
+    // rooms of the studio they picked.
+    const target =
       scope?.kind === "studio"
-        ? await ctx.db
+        ? scope.studioId
+        : scope?.kind === "platform"
+          ? studioId
+          : undefined;
+    const found =
+      target === undefined
+        ? await ctx.db.query("classes").collect()
+        : await ctx.db
             .query("classes")
-            .withIndex("by_studio", (q) => q.eq("studioId", scope.studioId))
-            .collect()
-        : await ctx.db.query("classes").collect();
+            .withIndex("by_studio", (q) => q.eq("studioId", target))
+            .collect();
     // The legacy fallback only covers classes from before studios.
     const classes =
       scope === null ? found.filter((row) => row.studioId === undefined) : found;

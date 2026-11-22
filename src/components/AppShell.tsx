@@ -473,7 +473,13 @@ export default function AppShell() {
   const switchableKey = classKey(switchableClasses);
   const loadingClasses = classesLoading || allClassesLoading;
   useEffect(() => {
-    if (switchableClasses.length === 0) return;
+    if (switchableClasses.length === 0) {
+      // The deployment answered and there is nothing to open — a studio with no
+      // classes, or an account that joined none yet. Drop the class on screen
+      // rather than leaving another studio's media and logs on display.
+      if (!loadingClasses && vault.classCode) setActiveClass(null);
+      return;
+    }
     if (
       vault.classCode &&
       (loadingClasses ||
@@ -549,7 +555,11 @@ export default function AppShell() {
     needsFullName !== undefined && tourPending !== undefined && !roleLoading;
   // Unread messages come from the deployment (see convex/chats.ts), which
   // counts what arrived in every chat since this account last opened it.
-  const unreadMessages = useQuery(api.chats.unreadTotal) ?? 0;
+  const unreadMessages =
+    useQuery(
+      api.chats.unreadTotal,
+      activeStudioId ? { studioId: activeStudioId } : {},
+    ) ?? 0;
   const initials = displayName
     .split(" ")
     .map((p) => p[0])

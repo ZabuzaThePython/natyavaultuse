@@ -16,6 +16,7 @@ import {
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
+import { studioMemberIds } from "./studios";
 
 // Admin gate credentials for the NatyaVault Admin area.
 // Kept server-side so they are never shipped in the browser bundle.
@@ -393,23 +394,46 @@ export const setGifsEnabled = mutation({
 });
 
 /**
- * Every sign-in account on this deployment (admin credentials required —
- * returns an empty list if they are wrong).
+ * The sign-in accounts on this deployment — or, when the operator is looking at
+ * one studio, only that studio's accounts (admin credentials required; returns
+ * an empty list if they are wrong).
  *
  * Never exposes the account's password: the admin can see who exists and
  * whether a password is set (`passwordSet`), but not the value — the only way
  * to set one is to reset it.
  */
 export const listAccounts = query({
-  args: { adminUsername: v.string(), adminPassword: v.string() },
-  handler: async (ctx, { adminUsername, adminPassword }) => {
+  args: {
+    adminUsername: v.string(),
+    adminPassword: v.string(),
+    // The studio picked in the shell. Without it (a deployment that has no
+    // studios yet) the list is deployment-wide, as it always was.
+    studioId: v.optional(v.id("studios")),
+  },
+  handler: async (
+    ctx,
+    { adminUsername, adminPassword, studioId },
+  ) => {
     if (!(await adminAuthorized(ctx, adminUsername, adminPassword))) return [];
-    const users = await ctx.db.query("users").collect();
+    // One studio's people only: its members and class owners, plus the
+    // students who joined its classes. Another studio's accounts stay out.
+    const allowed =
+      studioId === undefined ? null : await studioMemberIds(ctx, studioId);
+    const allUsers = await ctx.db.query("users").collect();
+    const users =
+      allowed === null
+        ? allUsers
+        : allUsers.filter((user) => allowed.has(user._id));
 
     // One pass over the class tables instead of two reads per account, so the
     // list can show who is a teacher and which class each account belongs to.
-    const classes = await ctx.db.query("classes").collect();
-    const members = await ctx.db.query("classMembers").collect();
+    const classes = (await ctx.db.query("classes").collect()).filter(
+      (row) => studioId === undefined || row.studioId === studioId,
+    );
+    const codes = new Set(classes.map((row) => row.code));
+    const members = (await ctx.db.query("classMembers").collect()).filter(
+      (member) => codes.has(member.code),
+    );
     const ownedBy = new Map<string, { code: string; name: string }[]>();
     for (const row of classes) {
       const list = ownedBy.get(row.ownerId) ?? [];

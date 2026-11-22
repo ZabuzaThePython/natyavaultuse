@@ -53,6 +53,7 @@ import {
   shortNames,
 } from "@/lib/display-name";
 import { useViewerIsStaff } from "@/lib/classes";
+import { useActiveStudio } from "@/lib/studios";
 import { timeAgo, useVault } from "@/lib/vault";
 import { useSearchParams } from "react-router";
 import {
@@ -428,7 +429,13 @@ function NewChatDialog({
   onOpenChange: (open: boolean) => void;
   onCreated: (chatId: Id<"chats">) => void;
 }) {
-  const people = useQuery(api.chats.people, open ? {} : "skip");
+  // Only the people of the studio on screen: the platform admin otherwise gets
+  // every account on the deployment.
+  const { studioId } = useActiveStudio();
+  const people = useQuery(
+    api.chats.people,
+    open ? (studioId ? { studioId } : {}) : "skip",
+  );
   const createChat = useMutation(api.chats.createChat);
   const [title, setTitle] = useState("");
   const [search, setSearch] = useState("");
@@ -578,7 +585,11 @@ function NewCallDialog({
   onOpenChange: (open: boolean) => void;
   onStarted: (chatId: Id<"chats">) => void;
 }) {
-  const people = useQuery(api.chats.people, open ? {} : "skip");
+  const { studioId } = useActiveStudio();
+  const people = useQuery(
+    api.chats.people,
+    open ? (studioId ? { studioId } : {}) : "skip",
+  );
   const createChat = useMutation(api.chats.createChat);
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<Id<"users">[]>([]);
@@ -850,8 +861,13 @@ function AddMembersDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  // The room's class decides who may join, so the picker asks from its side.
-  const people = useQuery(api.chats.people, open ? { chatId } : "skip");
+  // The room's class decides who may join, so the picker asks from its side;
+  // the studio on screen narrows an open group chat to its own people.
+  const { studioId } = useActiveStudio();
+  const people = useQuery(
+    api.chats.people,
+    open ? (studioId ? { chatId, studioId } : { chatId }) : "skip",
+  );
   const addMembers = useMutation(api.chats.addMembers);
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<Id<"users">[]>([]);
@@ -1399,10 +1415,16 @@ export default function Messages() {
   const { user } = useAuth();
   const vault = useVault();
   const { isStaff } = useViewerIsStaff();
+  // The platform admin looks at one studio at a time: the picker in the shell
+  // decides whose class rooms and people are in this list.
+  const { studioId: activeStudioId } = useActiveStudio();
   // Ships off: the admin turns GIFs on from the Admin area.
   const gifsEnabled = useQuery(api.admin.gifsEnabled) === true;
 
-  const chats = useQuery(api.chats.myChats);
+  const chats = useQuery(
+    api.chats.myChats,
+    activeStudioId ? { studioId: activeStudioId } : {},
+  );
   const ensureClassChat = useMutation(api.chats.ensureClassChat);
   const ensureAllClassChats = useMutation(api.chats.ensureAllClassChats);
   const markRead = useMutation(api.chats.markRead);
@@ -1434,22 +1456,29 @@ export default function Messages() {
   const fileRef = useRef<HTMLInputElement>(null);
   const ensuredFor = useRef<string | null>(null);
 
-  // Each class has one room. A teacher or the admin sees every class's room,
-  // so all of them are opened (and joined) on arrival; a student only gets
-  // the room of the class they joined.
+  // Each class has one room. A teacher sees every class's room in their studio,
+  // and the admin those of the studio they are viewing, so all of them are
+  // opened (and joined) on arrival; a student only gets the room of the class
+  // they joined. Switching studio opens the rooms of the new one.
   useEffect(() => {
-    const key = isStaff ? "staff" : vault.classCode;
+    const key = isStaff ? `staff:${activeStudioId ?? ""}` : vault.classCode;
     if (!key || ensuredFor.current === key) return;
     ensuredFor.current = key;
     const opening = isStaff
-      ? ensureAllClassChats({})
+      ? ensureAllClassChats(activeStudioId ? { studioId: activeStudioId } : {})
       : ensureClassChat({ code: vault.classCode ?? "" });
     void opening.catch((error) => {
       // Let the next render try again.
       ensuredFor.current = null;
       console.error("Could not open the class rooms:", error);
     });
-  }, [isStaff, vault.classCode, ensureClassChat, ensureAllClassChats]);
+  }, [
+    isStaff,
+    vault.classCode,
+    activeStudioId,
+    ensureClassChat,
+    ensureAllClassChats,
+  ]);
 
   const list = chats ?? [];
   const selected =

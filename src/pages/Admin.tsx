@@ -43,6 +43,7 @@ import { api } from "@/convex/_generated/api";
 import { firstName } from "@/lib/display-name";
 import { useAuth } from "@/hooks/use-auth";
 import { getAdminCreds } from "@/lib/admin";
+import { useActiveStudio } from "@/lib/studios";
 import { STORAGE_PLANS } from "@/lib/plans";
 import { useClassPractice } from "@/lib/practice";
 import {
@@ -86,6 +87,9 @@ export default function Admin() {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
   const vault = useVault();
+  // The platform admin manages one studio at a time: the picker in the shell
+  // decides whose accounts and content this page shows.
+  const { studioId: activeStudioId } = useActiveStudio();
 
   const [tab, setTab] = useState<"media" | "logs">("media");
   const [query, setQuery] = useState("");
@@ -104,6 +108,7 @@ export default function Admin() {
   const accounts = useQuery(api.admin.listAccounts, {
     adminUsername: adminCreds.username,
     adminPassword: adminCreds.password,
+    ...(activeStudioId ? { studioId: activeStudioId } : {}),
   });
   const deleteAccount = useMutation(api.admin.deleteAccount);
   // The practice log lives on the deployment (convex/practice.ts), so this
@@ -514,9 +519,9 @@ export default function Admin() {
             Accounts
           </CardTitle>
           <CardDescription>
-            Every sign-in account on this deployment, teachers included. Filter
-            to the teacher accounts, then reset any password to set a new value
-            — current passwords are never shown.
+            Every sign-in account in the studio you are viewing, teachers
+            included. Filter to the teacher accounts, then reset any password
+            to set a new value — current passwords are never shown.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
@@ -553,9 +558,9 @@ export default function Admin() {
             <EmptyLine
               message={
                 accountFilter === "teachers"
-                  ? "No teacher accounts on this deployment."
+                  ? "No teacher accounts in this studio."
                   : accountFilter === "students"
-                    ? "No student accounts on this deployment."
+                    ? "No student accounts in this studio."
                     : "No accounts to show."
               }
             />
