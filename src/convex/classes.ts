@@ -227,7 +227,10 @@ export const allClasses = query({
  * every page, not just the attendance sheet.
  */
 export const viewerRole = query({
-  args: {},
+  // `retry` is a cache-buster, not a fact: the client bumps it when this
+  // subscription has gone quiet (a deploy mid-flight, a dropped socket) so the
+  // shell asks again instead of signing the admin out of their own controls.
+  args: { retry: v.optional(v.number()) },
   handler: async (ctx): Promise<{
     signedIn: boolean;
     isStaff: boolean;

@@ -17,7 +17,7 @@ import type { AttendanceEntry } from "@/lib/vault";
 import { useQuery } from "convex/react";
 import { getLastAccount } from "@/lib/last-account";
 import { useActiveStudio } from "@/lib/studios";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 export interface ClassSummary {
   code: string;
@@ -91,27 +91,42 @@ export interface ViewerRole {
 /** Last role the deployment confirmed for an account, kept per account. */
 const ROLE_CACHE_KEY = "natyavault.roles.v1";
 
-function readCachedRole(account: string | undefined): boolean | null {
+/** What the deployment last said about an account's place in the app. */
+export interface CachedRole {
+  staff: boolean;
+  /** The operator account: sees every studio, opens the studio controls. */
+  admin: boolean;
+}
+
+function readCachedRole(account: string | undefined): CachedRole | null {
   if (!account) return null;
   try {
     const raw = localStorage.getItem(ROLE_CACHE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Record<string, unknown>;
-    return typeof parsed[account] === "boolean"
-      ? (parsed[account] as boolean)
-      : null;
+    const entry = parsed[account];
+    // Entries written before the admin flag existed are a bare boolean: they
+    // still mean "staff", they just know nothing about the operator.
+    if (typeof entry === "boolean") return { staff: entry, admin: false };
+    if (entry && typeof entry === "object") {
+      const value = entry as { staff?: unknown; admin?: unknown };
+      if (typeof value.staff === "boolean") {
+        return { staff: value.staff, admin: value.admin === true };
+      }
+    }
+    return null;
   } catch {
     return null;
   }
 }
 
-function writeCachedRole(account: string | undefined, isStaff: boolean) {
+function writeCachedRole(account: string | undefined, role: CachedRole) {
   if (!account) return;
   try {
     const raw = localStorage.getItem(ROLE_CACHE_KEY);
     const parsed = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
     const next = parsed && typeof parsed === "object" ? parsed : {};
-    next[account] = isStaff;
+    next[account] = { staff: role.staff, admin: role.admin };
     localStorage.setItem(ROLE_CACHE_KEY, JSON.stringify(next));
   } catch {
     // Storage refused the write — the role simply won't be remembered.
@@ -131,7 +146,20 @@ function writeCachedRole(account: string | undefined, isStaff: boolean) {
  */
 export function useViewerIsStaff(): ViewerRole {
   const { user } = useAuth();
-  const data = useQuery(api.classes.viewerRole);
+
+  // A subscription that never answers is worth asking again. `viewerRole` has
+  // no arguments by nature, so after a deploy landed mid-flight (or a dropped
+  // socket left the subscription dead) its answer simply never arrived again —
+  // the cached staff role kept the layout up, but every admin-only control,
+  // which had no cache, stayed gone until the browser was signed in again.
+  // Changing the argument re-subscribes. A handful of tries is enough.
+  const [retry, setRetry] = useState(0);
+  const data = useQuery(api.classes.viewerRole, { retry });
+  useEffect(() => {
+    if (data !== undefined || retry >= 5) return;
+    const timer = setTimeout(() => setRetry((tries) => tries + 1), 2000);
+    return () => clearTimeout(timer);
+  }, [data, retry]);
 
   // Which account the answer belongs to: the account id (the username kept in
   // `email`), not the display name, so renaming yourself keeps the memory.
@@ -149,16 +177,22 @@ export function useViewerIsStaff(): ViewerRole {
   // arrives without a token says, so it must never be remembered as
   // "student": the deployment enforces every permission regardless, so keeping
   // the last confirmed role through that gap is safe and stops the flicker.
-  const confirmed = data?.signedIn === true ? data.isStaff : null;
+  //
+  // The operator flag is remembered the same way, for the same reason: an admin
+  // who lost the studio picker and the studio controls to a gap in one query
+  // had to sign in again to get them back.
+  const confirmedStaff = data?.signedIn === true ? data.isStaff : null;
+  const confirmedAdmin = data?.signedIn === true ? data.isPlatformAdmin : null;
   const cached = useMemo(() => readCachedRole(account), [account]);
 
   useEffect(() => {
-    if (confirmed !== null) writeCachedRole(account, confirmed);
-  }, [confirmed, account]);
+    if (confirmedStaff === null || confirmedAdmin === null) return;
+    writeCachedRole(account, { staff: confirmedStaff, admin: confirmedAdmin });
+  }, [confirmedStaff, confirmedAdmin, account]);
 
   return {
-    isStaff: confirmed ?? cached ?? false,
-    isPlatformAdmin: data?.isPlatformAdmin ?? false,
+    isStaff: confirmedStaff ?? cached?.staff ?? false,
+    isPlatformAdmin: confirmedAdmin ?? cached?.admin ?? false,
     isLoading: data === undefined && cached === null,
     signedIn: data === undefined ? null : data.signedIn,
   };

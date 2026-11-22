@@ -16,7 +16,12 @@
  *   (or: npx esbuild scripts/check-studio-access.ts --bundle --platform=node \
  *          --format=esm --packages=external --outfile=/tmp/check.mjs && node /tmp/check.mjs)
  */
-import { classAccess, legacyStaff, scopeFor } from "../src/convex/studios";
+import {
+  classAccess,
+  isPlatformAdmin,
+  legacyStaff,
+  scopeFor,
+} from "../src/convex/studios";
 
 type Row = Record<string, unknown> & { _id: string };
 
@@ -279,10 +284,45 @@ async function suspendedStudio() {
   );
 }
 
+async function operatorIdentity() {
+  console.log("\nthe operator is recognised by its account, not by its display name");
+  const ctx = ctxWith({
+    users: [
+      // The real admin, whose row lost its email/role marks.
+      { _id: "u_admin", name: "Bala", email: "bala" },
+      // Somebody who typed "admin" as their full name at sign-up.
+      { _id: "u_named", name: "admin", email: "impostor" },
+    ],
+    authAccounts: [
+      {
+        _id: "aa_1",
+        provider: "password",
+        providerAccountId: "admin",
+        userId: "u_admin",
+      },
+    ],
+    studios: [],
+    studioMembers: [],
+    classes: [],
+    classMembers: [],
+  });
+  check(
+    "the admin account, after its row lost its marks",
+    await isPlatformAdmin(ctx, "u_admin"),
+    true,
+  );
+  check(
+    "an account merely named admin",
+    await isPlatformAdmin(ctx, "u_named"),
+    false,
+  );
+}
+
 await preBackfill();
 await postBackfill();
 await narrowedFallback();
 await suspendedStudio();
+await operatorIdentity();
 
 console.log(
   failures.length === 0

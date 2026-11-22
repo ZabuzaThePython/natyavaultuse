@@ -92,12 +92,20 @@ async function signedInAsAdmin(
   const userId = await getAuthUserId(ctx);
   if (userId === null) return false;
   const me = await ctx.db.get(userId);
-  return (
-    me !== null &&
-    (me.email === ADMIN_USERNAME ||
-      me.role === "admin" ||
-      me.name?.trim().toLowerCase() === ADMIN_USERNAME)
-  );
+  if (me !== null && (me.email === ADMIN_USERNAME || me.role === "admin")) {
+    return true;
+  }
+  // The durable anchor: the built-in account itself, by the provider account it
+  // was created from. The row's name no longer counts — anybody could type
+  // "admin" as their full name, which used to open this gate — and the email
+  // can be changed, while the auth account cannot.
+  const account = await ctx.db
+    .query("authAccounts")
+    .withIndex("providerAndAccountId", (q) =>
+      q.eq("provider", "password").eq("providerAccountId", ADMIN_USERNAME),
+    )
+    .unique();
+  return account !== null && account.userId === userId;
 }
 
 /** How long one admin unlock lasts before the credentials are asked again. */
@@ -175,6 +183,13 @@ export const claimAdminAccess = mutation({
     if (userId === null) return { ok: false };
     if (!isAdminCredentials(username, password)) return { ok: false };
     await grantAdminUnlock(ctx, userId);
+    // These are the admin credentials and they were just proved, so the account
+    // is the operator: mark the row durably, so recognising it later never hangs
+    // on the email or the display name.
+    const me = await ctx.db.get(userId);
+    if (me !== null && me.role !== "admin") {
+      await ctx.db.patch(userId, { role: "admin" });
+    }
     return { ok: true };
   },
 });

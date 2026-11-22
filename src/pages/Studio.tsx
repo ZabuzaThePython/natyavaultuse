@@ -11,7 +11,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { useActiveStudio, useMyStudio, useStudios } from "@/lib/studios";
+import { useViewerIsStaff } from "@/lib/classes";
+import { useActiveStudio, useStudios } from "@/lib/studios";
 import { useMutation, useQuery } from "convex/react";
 import {
   Check,
@@ -115,7 +116,9 @@ function OperatorStudios({
 
 export default function Studio() {
   const { studioId: activeStudioId } = useActiveStudio();
-  const { isPlatformAdmin } = useMyStudio();
+  // From the shell's remembered role rather than a live query, so a gap in that
+  // one answer cannot hide the operator's own controls until a sign-in.
+  const { isPlatformAdmin } = useViewerIsStaff();
   const { studios } = useStudios();
   const overview = useQuery(api.studios.studioOverview, {
     studioId: activeStudioId ?? undefined,

@@ -59,7 +59,20 @@ export async function isPlatformAdmin(
 ): Promise<boolean> {
   const me = await ctx.db.get(userId);
   if (me === null) return false;
-  return me.email === ADMIN_ACCOUNT || me.role === "admin";
+  if (me.email === ADMIN_ACCOUNT || me.role === "admin") return true;
+  // The durable anchor: the built-in sign-in account itself. The row's email
+  // and name can be edited (and the name is how anyone could once pretend to be
+  // the operator); the provider account behind `signIn` with `admin` cannot be
+  // renamed from inside the app, so the operator is recognised by it too — an
+  // admin whose row is missing its mark keeps their powers after a reload
+  // instead of needing to sign in again.
+  const account = await ctx.db
+    .query("authAccounts")
+    .withIndex("providerAndAccountId", (q) =>
+      q.eq("provider", "password").eq("providerAccountId", ADMIN_ACCOUNT),
+    )
+    .unique();
+  return account !== null && account.userId === userId;
 }
 
 /** Whether a studio is suspended (or gone), which freezes everything in it. */
