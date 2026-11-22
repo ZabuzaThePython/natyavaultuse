@@ -42,7 +42,12 @@ import {
   useClasses,
   useViewerIsStaff,
 } from "@/lib/classes";
-import { useActiveStudio, useMyStudio, useStudios } from "@/lib/studios";
+import {
+  useActiveStudio,
+  useMyStudio,
+  useStudioName,
+  useStudios,
+} from "@/lib/studios";
 import { rememberAccount } from "@/lib/last-account";
 import { firstName } from "@/lib/display-name";
 import {
@@ -349,6 +354,8 @@ export default function AppShell() {
   const { studioId: activeStudioId, setStudioId } = useActiveStudio();
   const { studios } = useStudios();
   const myStudio = useMyStudio();
+  // The studio the shell is looking at, named at the top of the menu.
+  const studioName = useStudioName();
   useEffect(() => {
     if (!isPlatformAdmin || studios.length === 0) return;
     if (
@@ -589,7 +596,7 @@ export default function AppShell() {
                 NatyaVault
               </p>
               <p className="truncate text-[11px] text-sidebar-foreground/60">
-                Bharatanatyam archive
+                {studioName ?? "Bharatanatyam archive"}
               </p>
             </div>
           </div>
@@ -597,17 +604,13 @@ export default function AppShell() {
 
         <SidebarContent>
           <SidebarGroup>
-            <SidebarGroupLabel>Studio</SidebarGroupLabel>
+            <SidebarGroupLabel className="truncate">
+              {studioName ?? "Studio"}
+            </SidebarGroupLabel>
             {isPlatformAdmin ? (
               <div className="px-1 pb-2">
                 {studios.length > 0 ? (
                   <>
-                    <label
-                      htmlFor="studio-picker"
-                      className="mb-1 block text-[11px] text-sidebar-foreground/60"
-                    >
-                      Studio
-                    </label>
                     <Select
                       value={activeStudioId ?? studios[0].id}
                       onValueChange={(value) => setStudioId(value)}

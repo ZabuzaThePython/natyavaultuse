@@ -39,7 +39,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api } from "@/convex/_generated/api";
 import { useIsAdmin } from "@/lib/admin";
-import { useActiveStudio } from "@/lib/studios";
+import { useActiveStudio, useStudioName } from "@/lib/studios";
 import {
   formatClassCode,
   useAllClasses,
@@ -111,6 +111,7 @@ export default function Classes() {
   // Which studio's classes these are, for the admin: the one picked in the
   // sidebar. A teacher's studio is decided by the deployment.
   const { studioId: activeStudioId } = useActiveStudio();
+  const studioName = useStudioName();
   const createClass = useMutation(api.classes.createClass);
   const joinClass = useMutation(api.classes.joinClass);
   const deleteClass = useMutation(api.classes.deleteClass);
@@ -233,7 +234,9 @@ export default function Classes() {
         <p className="text-sm font-medium text-muted-foreground">
           {canCreate
             ? canSeeAll
-              ? "Every class in your studio"
+              ? studioName
+                ? `Every class in ${studioName}`
+                : "Every class in your studio"
               : "Classes you run"
             : "Your class"}
         </p>
