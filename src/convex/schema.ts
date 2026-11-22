@@ -263,6 +263,24 @@ const schema = defineSchema(
       .index("by_code_and_date", ["code", "date"])
       .index("by_client", ["clientId"]),
 
+    // Monthly fee marks, one row per class, student and month. A teacher ticks
+    // who has paid; a student reads their own months back, read-only. Kept on
+    // the deployment so a tick on the teacher's device is on the student's too.
+    feePayments: defineTable({
+      /** Join code of the class the fee belongs to. */
+      code: v.string(),
+      /** The person's name, as it appears on the class's attendance sheet. */
+      studentName: v.string(),
+      /** The month being paid for, as YYYY-MM. */
+      month: v.string(),
+      paid: v.boolean(),
+      /** Account that recorded the payment. */
+      markedBy: v.string(),
+      updatedAt: v.number(),
+    })
+      .index("by_code", ["code"])
+      .index("by_code_and_month", ["code", "month"]),
+
     // Media the whole class can see. A row is metadata only — the bytes live
     // in the uploader's Google Drive (`driveFileId`), which is why only
     // Drive-backed uploads are listed here: a browser-local file can never be

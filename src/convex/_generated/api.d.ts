@@ -19,6 +19,7 @@ import type * as chats from "../chats.js";
 import type * as classes from "../classes.js";
 import type * as codes from "../codes.js";
 import type * as drive from "../drive.js";
+import type * as fees from "../fees.js";
 import type * as gifs from "../gifs.js";
 import type * as http from "../http.js";
 import type * as migrations from "../migrations.js";
@@ -51,6 +52,7 @@ declare const fullApi: ApiFromModules<{
   classes: typeof classes;
   codes: typeof codes;
   drive: typeof drive;
+  fees: typeof fees;
   gifs: typeof gifs;
   http: typeof http;
   migrations: typeof migrations;

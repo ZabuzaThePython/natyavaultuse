@@ -168,8 +168,10 @@ export function TourSpotlight({
     const list: TourStep[] = [
       {
         id: "welcome",
-        title: "Welcome to NatyaVault",
-        body: "Your dance studio in one place — the archive, practice, attendance and messages. This is a quick tour of the real screens; skip it any time.",
+        title: isStaff ? "Welcome to your studio" : "Welcome to NatyaVault",
+        body: isStaff
+          ? "Your studio in one place — the archive, practice, attendance, fees and messages. This is a quick tour of the real screens; skip it any time."
+          : "Your class in one place — the archive, practice, attendance, your fees and messages. This is a quick tour of the real screens; skip it any time.",
         path: "/dashboard",
       },
       {
@@ -190,6 +192,14 @@ export function TourSpotlight({
         title: "Today's numbers",
         body: "Files in the vault, minutes practised this week, folders, and who has been marked present today.",
         target: "dash-stats",
+      },
+      {
+        id: "dash-fees",
+        title: isStaff ? "Fees" : "Your fees",
+        body: isStaff
+          ? "Pick the month, then tick each student who has paid. A tick appears on their own dashboard straight away; un-ticking takes it back."
+          : "A month calendar of your fees, ticked off by your teacher. It is read-only here — only your teacher records a payment.",
+        target: "dash-fees",
       },
       {
         id: "dash-leaderboard",
@@ -371,7 +381,7 @@ export function TourSpotlight({
     list.push({
       id: "pocket",
       title: "Keep it in your pocket",
-      body: "Add NatyaVault to your home screen from your phone's browser menu. Turn on notifications in Messages so replies and new uploads reach your lock screen.",
+      body: "The Dark mode switch above Support in the menu flips the whole app for a dim room. Add NatyaVault to your home screen from your phone's browser menu, and turn on notifications in Messages so replies and new uploads reach your lock screen.",
     });
 
     return list;

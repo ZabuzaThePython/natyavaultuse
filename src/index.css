@@ -48,6 +48,8 @@
 /* CHANGE VALUES FOR THEME — NatyaVault: premium warm neutrals, bold maroon,
    warm gold, jewel accents, dark studio sidebar */
 :root {
+  /* Native controls — the date picker, scrollbars, selects — follow the theme. */
+  color-scheme: light;
   --radius: 0.7rem;
   --background: oklch(0.98 0.005 85);
   --foreground: oklch(0.23 0.02 28);
@@ -86,6 +88,7 @@
 }
 
 .dark {
+  color-scheme: dark;
   --background: oklch(0.185 0.015 28);
   --foreground: oklch(0.97 0.005 85);
   --card: oklch(0.23 0.02 28);

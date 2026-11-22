@@ -8,6 +8,7 @@ import { VlyToolbar } from "../vly-toolbar-readonly.tsx";
 import { ConvexAuthProvider } from "@convex-dev/auth/react";
 import { getAuthStorage } from "@/lib/auth-storage";
 import { ConvexReactClient } from "convex/react";
+import { ThemeProvider } from "next-themes";
 import React, { StrictMode, useEffect, lazy, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Route, Routes, useLocation } from "react-router";
@@ -166,6 +167,14 @@ function RouteSyncer() {
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <RootErrorBoundary>
+      {/* Light or dark is a class on <html>, read by the .dark tokens in
+          index.css; next-themes remembers the choice per browser. */}
+      <ThemeProvider
+        attribute="class"
+        defaultTheme="light"
+        enableSystem={false}
+        disableTransitionOnChange
+      >
       <ToolbarErrorBoundary>
         <VlyToolbar />
       </ToolbarErrorBoundary>
@@ -219,6 +228,7 @@ createRoot(document.getElementById("root")!).render(
           <Toaster />
         </ConvexAuthProvider>
       </ConnectionGuard>
+      </ThemeProvider>
     </RootErrorBoundary>
   </StrictMode>,
 );

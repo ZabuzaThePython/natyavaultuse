@@ -86,8 +86,8 @@ const DOMAINS = [
   {
     id: "learning",
     title: "Attendance and practice",
-    blurb: "The two per-class records students and teachers both read: marks per class day, and practice sessions.",
-    tables: ["attendanceMarks", "practiceEntries"],
+    blurb: "The per-class records students and teachers both read: marks per class day, practice sessions, and the monthly fee ticks.",
+    tables: ["attendanceMarks", "practiceEntries", "feePayments"],
   },
   {
     id: "media",

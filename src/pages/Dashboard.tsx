@@ -1,3 +1,4 @@
+import { FeesPanel } from "@/components/fees-panel";
 import { MediaRow, VideoDialog } from "@/components/media";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -286,6 +287,9 @@ export default function Dashboard() {
           </Card>
         </Link>
       </section>
+
+      {/* Monthly fees: the teacher's ticks, or the student's own calendar. */}
+      <FeesPanel names={rosterNames} ready={sheetReady} />
 
       {/* ------------------------------------------------------ leaderboard */}
       <section data-tour="dash-leaderboard" className="flex flex-col gap-3">

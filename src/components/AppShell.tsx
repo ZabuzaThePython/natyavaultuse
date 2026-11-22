@@ -5,6 +5,7 @@ import { NotificationsPrompt } from "@/components/notifications-prompt";
 import { TourSpotlight } from "@/components/tour-spotlight";
 import { Om } from "@/components/Om";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import {
   Sidebar,
   SidebarContent,
@@ -68,8 +69,11 @@ import {
   LogOut,
   Menu,
   MessageSquareText,
+  Moon,
   NotebookPen,
+  Sun,
 } from "lucide-react";
+import { useTheme } from "next-themes";
 import { useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router";
 
@@ -305,6 +309,30 @@ function MobileMenuButton() {
       <Menu className="size-5" />
       <span className="text-sm font-semibold">Menu</span>
     </Button>
+  );
+}
+
+/**
+ * The light/dark switch, just above the credits in the menu footer. The choice
+ * is remembered in this browser (next-themes, set up in main.tsx), so a reload
+ * or a return visit keeps the room as dim as it was left.
+ */
+function ThemeToggle() {
+  const { theme, setTheme } = useTheme();
+  const isDark = theme === "dark";
+  return (
+    <div className="flex items-center justify-between gap-2 rounded-lg border border-sidebar-border/60 bg-sidebar-accent/25 px-2.5 py-2">
+      <span className="flex items-center gap-2 text-[11px] font-medium text-sidebar-foreground/70">
+        {isDark ? <Moon className="size-3.5" /> : <Sun className="size-3.5" />}
+        Dark mode
+      </span>
+      <Switch
+        checked={isDark}
+        onCheckedChange={(on) => setTheme(on ? "dark" : "light")}
+        aria-label="Toggle dark mode"
+        className="data-[state=checked]:bg-gold data-[state=unchecked]:bg-sidebar-foreground/25"
+      />
+    </div>
   );
 }
 
@@ -668,6 +696,7 @@ export default function AppShell() {
         <SidebarSeparator />
 
         <SidebarFooter className="gap-3 p-3">
+          <ThemeToggle />
           {/* Who built it and where to get help. Kept small and low-contrast so
               the account row below stays the loudest thing down here. */}
           <div className="rounded-lg border border-sidebar-border/60 bg-sidebar-accent/25 px-2.5 py-2">
