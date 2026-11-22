@@ -79,8 +79,8 @@ const USERNAME_PATTERN = /^[A-Za-z0-9._@-]{3,32}$/;
 
 /** The two ways a teacher's sign-up can place them in a studio. */
 const STUDIO_MODES = [
-  { value: "join" as const, label: "Join a studio" },
   { value: "create" as const, label: "Start a studio" },
+  { value: "join" as const, label: "Join a studio" },
 ];
 
 function Auth({ redirectAfterAuth }: AuthProps = {}) {
@@ -119,7 +119,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
   const [classCode, setClassCode] = useState("");
   // A teacher's sign-up also names a studio: join one with its code, or start
   // one. A student's comes from their class code instead.
-  const [studioMode, setStudioMode] = useState<"join" | "create">("join");
+  const [studioMode, setStudioMode] = useState<"join" | "create">("create");
   const [studioCode, setStudioCode] = useState("");
   const [studioName, setStudioName] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -522,6 +522,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                           studioMode === "join" ? "characters" : "sentences"
                         }
                         spellCheck={false}
+                        className="pl-9"
                         disabled={isLoading}
                       />
                     </div>
