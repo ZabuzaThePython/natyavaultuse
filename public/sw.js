@@ -33,7 +33,12 @@ self.addEventListener("push", (event) => {
       body,
       icon: "/icons/icon-192.png",
       badge: "/icons/icon-192.png",
-      tag: payload.chatId ? `chat-${payload.chatId}` : "natyavault",
+      tag:
+        typeof payload.tag === "string"
+          ? payload.tag
+          : payload.chatId
+            ? `chat-${payload.chatId}`
+            : "natyavault",
       renotify: true,
       data: { url },
     }),

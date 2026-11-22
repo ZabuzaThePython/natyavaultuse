@@ -196,10 +196,15 @@ export function useAdminAccess(): { isAdmin: boolean; loading: boolean } {
 
   // Bumping the argument re-subscribes. A handful of tries is enough.
   const [retry, setRetry] = useState(0);
-  const serverAdmin = useQuery(
-    api.admin.hasAdminAccess,
-    retry > 0 ? { retry } : {},
-  );
+  // The credentials this browser unlocked with are sent along, so the
+  // deployment confirms admin access directly instead of relying only on the
+  // grant row (which a lost or failed claim can leave missing). They are the
+  // same pair the gate itself verifies.
+  const creds = getAdminCreds();
+  const serverAdmin = useQuery(api.admin.hasAdminAccess, {
+    ...(retry > 0 ? { retry } : {}),
+    ...(creds ? { username: creds.username, password: creds.password } : {}),
+  });
 
   const confirmed = serverAdmin === true;
   const cached = useMemo(() => readGrant(account), [account]);

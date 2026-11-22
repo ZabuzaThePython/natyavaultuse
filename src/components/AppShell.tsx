@@ -693,7 +693,9 @@ export default function AppShell() {
           </SidebarGroup>
         </SidebarContent>
 
-        <SidebarSeparator />
+        {/* Same inset as the footer's cards below, so the rule lines up with
+            them instead of sitting a few pixels to one side. */}
+        <SidebarSeparator className="mx-3" />
 
         <SidebarFooter className="gap-3 p-3">
           <ThemeToggle />

@@ -167,8 +167,25 @@ export const hasAdminAccess = query({
   // `retry` is a cache-buster, not a fact: the client bumps it when this
   // subscription has gone quiet (a deploy mid-flight, a dropped socket), so
   // the shell asks again instead of leaving the admin gate closed.
-  args: { retry: v.optional(v.number()) },
-  handler: async (ctx) => {
+  //
+  // The credentials are optional, and are the ones this browser unlocked with
+  // (the same pair `verify` accepts). Sending them lets the deployment confirm
+  // admin access even when the account's grant row never landed — otherwise a
+  // browser that still held the credentials could lose the Admin area the
+  // moment its local flag was gone, and had to type the password again.
+  args: {
+    retry: v.optional(v.number()),
+    username: v.optional(v.string()),
+    password: v.optional(v.string()),
+  },
+  handler: async (ctx, { username, password }) => {
+    if (
+      username !== undefined &&
+      password !== undefined &&
+      isAdminCredentials(username, password)
+    ) {
+      return true;
+    }
     if (await signedInAsAdmin(ctx)) return true;
     const userId = await getAuthUserId(ctx);
     return userId !== null && (await hasAdminUnlock(ctx, userId));

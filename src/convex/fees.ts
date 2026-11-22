@@ -1,13 +1,16 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { v } from "convex/values";
+import { internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 import {
+  internalMutation,
   mutation,
   query,
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
 import { findClass } from "./codes";
-import { classAccess } from "./studios";
+import { classAccess, studioRoleIn } from "./studios";
 
 /**
  * Class fees, per month, on the deployment.
@@ -151,5 +154,96 @@ export const setFee = mutation({
       });
     }
     return { ok: true, error: null };
+  },
+});
+
+/** The month names, so the reminder never depends on runtime date formatting. */
+const MONTH_NAMES = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
+
+/** India Standard Time (UTC+5:30), where the studios are. */
+const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+
+/**
+ * The monthly fee reminder, run every morning by convex/crons.ts.
+ *
+ * On the first and last day of the month — in IST, so the reminder lands on the
+ * studio's calendar day, not the server's — every student whose fee for that
+ * month has not been ticked gets one notification on their saved devices. A
+ * student who has paid is left alone, and staff are never reminded: they are
+ * the ones who record the payment.
+ */
+export const queueFeeReminders = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const now = new Date(Date.now() + IST_OFFSET_MS);
+    const year = now.getUTCFullYear();
+    const monthIndex = now.getUTCMonth();
+    const day = now.getUTCDate();
+    const lastDay = new Date(Date.UTC(year, monthIndex + 1, 0)).getUTCDate();
+    if (day !== 1 && day !== lastDay) {
+      return { queued: 0, month: null };
+    }
+
+    const month = `${year}-${String(monthIndex + 1).padStart(2, "0")}`;
+    const classes = await ctx.db.query("classes").collect();
+    // One entry per student, even when they belong to more than one class.
+    const unpaid = new Map<Id<"users">, string>();
+
+    for (const row of classes) {
+      const marks = await ctx.db
+        .query("feePayments")
+        .withIndex("by_code_and_month", (q) =>
+          q.eq("code", row.code).eq("month", month),
+        )
+        .collect();
+      const paid = new Set(
+        marks
+          .filter((mark) => mark.paid)
+          .map((mark) => nameKey(mark.studentName)),
+      );
+      const members = await ctx.db
+        .query("classMembers")
+        .withIndex("by_code", (q) => q.eq("code", row.code))
+        .collect();
+      for (const member of members) {
+        const account = await ctx.db.get(member.userId);
+        const name = account?.name ?? account?.email;
+        if (!name) continue;
+        // Staff record the fees; they are never reminded about them.
+        const studioRole = await studioRoleIn(ctx, member.userId, row.studioId);
+        const isTeacher =
+          member.userId === row.ownerId ||
+          (studioRole !== null
+            ? studioRole !== "student"
+            : account?.classRole === "teacher");
+        if (isTeacher) continue;
+        if (paid.has(nameKey(name))) continue;
+        unpaid.set(member.userId, name);
+      }
+    }
+
+    if (unpaid.size === 0) return { queued: 0, month };
+
+    await ctx.scheduler.runAfter(0, internal.pushSend.sendToUsers, {
+      userIds: [...unpaid.keys()],
+      title: `Fees for ${MONTH_NAMES[monthIndex]} ${year}`,
+      body: `${MONTH_NAMES[monthIndex]}'s fee hasn't been recorded yet — pay it and your teacher will tick it off on your dashboard.`,
+      url: "/dashboard",
+      tag: `fees-${month}`,
+    });
+    return { queued: unpaid.size, month };
   },
 });

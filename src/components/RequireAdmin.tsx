@@ -62,10 +62,17 @@ export function RequireAdmin({ children }: { children: ReactNode }) {
         // Remember the unlock in this browser (instant on the next load) and on
         // the deployment (survives a cleared browser or a different device).
         unlockAdmin(username, password);
-        try {
-          await claimAdminAccess({ username, password });
-        } catch (error) {
-          console.error("Could not store the admin unlock:", error);
+        // The grant is what keeps the Admin area open once this browser's
+        // storage is gone (evicted, or filled by media), so a missed claim must
+        // not pass silently — ask again a couple of times before giving up.
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          try {
+            const claimed = await claimAdminAccess({ username, password });
+            if (claimed.ok) break;
+          } catch (error) {
+            console.error("Could not store the admin unlock:", error);
+          }
+          await new Promise((resolve) => setTimeout(resolve, 700));
         }
       } else {
         setError("That username or password is incorrect.");

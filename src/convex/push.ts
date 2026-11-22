@@ -151,6 +151,35 @@ export const recipients = internalQuery({
   },
 });
 
+/**
+ * Every saved device for these accounts. Used by notifications that are not
+ * about a chat — the monthly fee reminder (see convex/fees.ts).
+ */
+export const subscriptionsFor = internalQuery({
+  args: { userIds: v.array(v.id("users")) },
+  handler: async (ctx, { userIds }) => {
+    const subscriptions: {
+      endpoint: string;
+      p256dh: string;
+      auth: string;
+    }[] = [];
+    for (const userId of userIds) {
+      const rows = await ctx.db
+        .query("pushSubscriptions")
+        .withIndex("by_user", (q) => q.eq("userId", userId))
+        .collect();
+      for (const row of rows) {
+        subscriptions.push({
+          endpoint: row.endpoint,
+          p256dh: row.p256dh,
+          auth: row.auth,
+        });
+      }
+    }
+    return { subscriptions };
+  },
+});
+
 /** Drop subscriptions the push service says are gone (uninstalled, expired). */
 export const removeDead = internalMutation({
   args: { endpoints: v.array(v.string()) },
