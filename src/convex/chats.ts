@@ -3,7 +3,12 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { findClass } from "./classes";
-import { classAccess, scopeFor, studioMemberIds } from "./studios";
+import {
+  classAccess,
+  legacyStaff,
+  scopeFor,
+  studioMemberIds,
+} from "./studios";
 import { isGiphyUrl } from "./gifs";
 import {
   mutation,
@@ -97,7 +102,9 @@ async function staffForChat(
     if (row !== null) return (await classAccess(ctx, userId, row)).staff;
   }
   const scope = await scopeFor(ctx, userId);
-  return scope !== null && scope.kind !== "student";
+  // No studio row yet (pre-backfill): the pre-studios staff test applies.
+  if (scope === null) return await legacyStaff(ctx, userId);
+  return scope.kind !== "student";
 }
 
 export async function chatAccess(
@@ -246,7 +253,8 @@ export const people = query({
     const me = await viewer(ctx);
     if (me === null) return { ok: false, groups: [] };
     const scope = await scopeFor(ctx, me._id);
-    if (scope === null || scope.kind === "student") {
+    const legacy = scope === null ? await legacyStaff(ctx, me._id) : false;
+    if (scope === null ? !legacy : scope.kind === "student") {
       return { ok: false, groups: [] };
     }
 
@@ -258,23 +266,23 @@ export const people = query({
     // A studio's staff chats with its own people; the platform admin with
     // everyone.
     const allowed =
-      scope.kind === "platform"
-        ? null
-        : await studioMemberIds(ctx, scope.studioId);
+      scope?.kind === "studio"
+        ? await studioMemberIds(ctx, scope.studioId)
+        : null;
 
     const users = await ctx.db.query("users").collect();
     const classes =
-      scope.kind === "platform"
-        ? await ctx.db.query("classes").collect()
-        : await ctx.db
+      scope?.kind === "studio"
+        ? await ctx.db
             .query("classes")
             .withIndex("by_studio", (q) => q.eq("studioId", scope.studioId))
-            .collect();
+            .collect()
+        : await ctx.db.query("classes").collect();
     const memberships = await ctx.db.query("classMembers").collect();
 
     // Who counts as staff here: this studio's teachers and class owners.
     const staffIds = new Set<Id<"users">>();
-    if (scope.kind === "studio") {
+    if (scope?.kind === "studio") {
       const rows = await ctx.db
         .query("studioMembers")
         .withIndex("by_studio", (q) => q.eq("studioId", scope.studioId))
@@ -508,19 +516,20 @@ export const ensureAllClassChats = mutation({
     const me = await viewer(ctx);
     if (me === null) return { ok: false, rooms: 0 };
     const scope = await scopeFor(ctx, me._id);
-    if (scope === null || scope.kind === "student") {
+    const legacy = scope === null ? await legacyStaff(ctx, me._id) : false;
+    if (scope === null ? !legacy : scope.kind === "student") {
       return { ok: false, rooms: 0 };
     }
 
     // Only this studio's rooms: every class in the deployment would put another
     // school's rooms in this account's chat list.
     const classes =
-      scope.kind === "platform"
-        ? await ctx.db.query("classes").collect()
-        : await ctx.db
+      scope?.kind === "studio"
+        ? await ctx.db
             .query("classes")
             .withIndex("by_studio", (q) => q.eq("studioId", scope.studioId))
-            .collect();
+            .collect()
+        : await ctx.db.query("classes").collect();
     let rooms = 0;
     for (const row of classes) {
       if ((await ensureRoom(ctx, row, me)) !== null) rooms++;
@@ -553,7 +562,8 @@ export const createChat = mutation({
       return { ok: false, chatId: null, error: "Sign in first.", reused: false };
     }
     const scope = await scopeFor(ctx, me._id);
-    if (scope === null || scope.kind === "student") {
+    const legacy = scope === null ? await legacyStaff(ctx, me._id) : false;
+    if (scope === null ? !legacy : scope.kind === "student") {
       return {
         ok: false,
         chatId: null,
@@ -590,7 +600,7 @@ export const createChat = mutation({
 
     // A studio's staff may only start chats with its own people: another
     // school's students must not end up in this conversation.
-    if (scope.kind === "studio") {
+    if (scope?.kind === "studio") {
       const allowed = await studioMemberIds(ctx, scope.studioId);
       if (others.some((user) => !allowed.has(user._id))) {
         return {
@@ -670,7 +680,8 @@ export const addMembers = mutation({
       return { ok: false, added: 0, skipped: 0, error: "Sign in first." };
     }
     const scope = await scopeFor(ctx, me._id);
-    if (scope === null || scope.kind === "student") {
+    const legacy = scope === null ? await legacyStaff(ctx, me._id) : false;
+    if (scope === null ? !legacy : scope.kind === "student") {
       return {
         ok: false,
         added: 0,
@@ -680,7 +691,7 @@ export const addMembers = mutation({
     }
     // A studio's staff adds its own people only.
     const allowed =
-      scope.kind === "studio"
+      scope?.kind === "studio"
         ? await studioMemberIds(ctx, scope.studioId)
         : null;
     // Staff see every class, so a room they can open is never read-only.

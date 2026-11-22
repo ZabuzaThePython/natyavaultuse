@@ -682,11 +682,17 @@ export default function MediaVault() {
       try {
         // The browser uploads straight to Google via a resumable session, so
         // the file never passes through a Convex function.
-        const result = await uploadFileToDrive(file, name, {
-          startUpload: startDriveUpload,
-          finishUpload: finishDriveUpload,
-          cancelUpload: cancelDriveUpload,
-        });
+        const result = await uploadFileToDrive(
+          file,
+          name,
+          {
+            startUpload: startDriveUpload,
+            finishUpload: finishDriveUpload,
+            cancelUpload: cancelDriveUpload,
+          },
+          // A class upload lands in its studio's folder of the archive.
+          classUpload ? vault.classCode : null,
+        );
         if (result.url) cacheDriveUrl(result.fileId, result.url);
         return {
           src: `drive:${result.fileId}`,

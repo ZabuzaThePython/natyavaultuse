@@ -3,12 +3,13 @@ import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
   internalMutation,
+  internalQuery,
   mutation,
   query,
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
-import { findStudio, generateCode } from "./codes";
+import { findClass, findStudio, generateCode } from "./codes";
 
 /**
  * Studios: the tenant above a class.
@@ -57,6 +58,30 @@ export async function isPlatformAdmin(
     me.role === "admin" ||
     me.name?.trim().toLowerCase() === ADMIN_ACCOUNT
   );
+}
+
+/**
+ * The staff test that was in force before studios existed: the admin, an
+ * account created as a teacher, or one that already owns a class.
+ *
+ * It is kept for exactly one window — between deploying the studio code and
+ * running the backfill, when no account has a studio row yet. Without it every
+ * teacher and student would be locked out of their own class on the deploy.
+ * Once the backfill has run, `scopeFor` answers for every account and this is
+ * never consulted.
+ */
+export async function legacyStaff(
+  ctx: QueryCtx | MutationCtx,
+  userId: Id<"users">,
+): Promise<boolean> {
+  if (await isPlatformAdmin(ctx, userId)) return true;
+  const me = await ctx.db.get(userId);
+  if (me?.classRole === "teacher") return true;
+  const ownsAClass = await ctx.db
+    .query("classes")
+    .withIndex("by_owner", (q) => q.eq("ownerId", userId))
+    .first();
+  return ownsAClass !== null;
 }
 
 /** The account's studio row, if it has one. One row per account for now. */
@@ -119,7 +144,22 @@ export async function classAccess(
   row: Doc<"classes">,
 ): Promise<{ read: boolean; staff: boolean; platform: boolean }> {
   const scope = await scopeFor(ctx, userId);
-  if (scope === null) return { read: false, staff: false, platform: false };
+  if (scope === null) {
+    // Before the backfill nobody has a studio row: fall back to the rule that
+    // was in force before studios, so the deploy locks nobody out.
+    if (await legacyStaff(ctx, userId)) {
+      return { read: true, staff: true, platform: false };
+    }
+    const joined = await ctx.db
+      .query("classMembers")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .first();
+    return {
+      read: joined !== null && joined.code === row.code,
+      staff: false,
+      platform: false,
+    };
+  }
   if (scope.kind === "platform") {
     return { read: true, staff: true, platform: true };
   }
@@ -383,6 +423,22 @@ export const createStudio = mutation({
   },
 });
 
+/**
+ * Whether a studio code is real, and the studio's name. The sign-up card
+ * checks this before it creates a teacher's account, so a mistyped code is
+ * caught while they can still fix it.
+ */
+export const validateCode = query({
+  args: { code: v.string() },
+  handler: async (ctx, { code }) => {
+    const row = await findStudio(ctx, code);
+    if (row === null || row.suspendedAt !== undefined) {
+      return { ok: false, name: null };
+    }
+    return { ok: true, name: row.name };
+  },
+});
+
 /** Join an existing studio with its code — a teacher joining a colleague's. */
 export const joinStudio = mutation({
   args: { code: v.string() },
@@ -460,6 +516,22 @@ export const renameStudio = mutation({
 
     await ctx.db.patch(studioId, { name: clean });
     return { ok: true, error: null };
+  },
+});
+
+/** Which Drive folder a class's uploads belong in, for the upload action. */
+export const folderForClass = internalQuery({
+  args: { code: v.string() },
+  handler: async (ctx, { code }) => {
+    const row = await findClass(ctx, code);
+    if (row === null || row.studioId === undefined) return null;
+    const studio = await ctx.db.get(row.studioId);
+    if (studio === null) return null;
+    return {
+      studioId: studio._id,
+      folderName: studio.folderName,
+      folderId: studio.driveFolderId ?? null,
+    };
   },
 });
 

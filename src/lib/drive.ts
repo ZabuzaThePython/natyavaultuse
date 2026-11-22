@@ -85,6 +85,8 @@ export async function uploadFileToDrive(
       name: string;
       mimeType: string;
       size: number;
+      /** The class whose studio folder the file belongs in. */
+      code?: string;
     }) => Promise<{ uploadUrl: string; target: "vault" | "uploader" }>;
     finishUpload: (args: {
       fileId: string;
@@ -94,12 +96,15 @@ export async function uploadFileToDrive(
     }) => Promise<Omit<DriveUploadResult, "target">>;
     cancelUpload?: (args: { uploadUrl: string }) => Promise<{ ok: boolean }>;
   },
+  /** The class this upload belongs to, when it is a class upload. */
+  classCode?: string | null,
 ): Promise<DriveUploadResult> {
   const mimeType = file.type || "application/octet-stream";
   const { uploadUrl, target } = await callbacks.startUpload({
     name,
     mimeType,
     size: file.size,
+    ...(classCode ? { code: classCode } : {}),
   });
 
   let response: Response;

@@ -13,6 +13,7 @@ import { findClass, generateCode } from "./codes";
 import {
   addStudioMember,
   classAccess,
+  legacyStaff,
   membershipFor,
   scopeFor,
   studioRoleIn,
@@ -120,11 +121,19 @@ export const allClasses = query({
     if (userId === null) return closed;
 
     const scope = await scopeFor(ctx, userId);
-    if (scope === null || scope.kind === "student") return closed;
+    // Before the backfill no account has a studio row: the pre-studios staff
+    // test keeps a teacher looking at their classes instead of an empty list.
+    const legacy = scope === null ? await legacyStaff(ctx, userId) : false;
+    if (scope === null ? !legacy : scope.kind === "student") return closed;
 
-    const target = scope.kind === "platform" ? studioId : scope.studioId;
+    const platform = scope?.kind === "platform";
+    const target =
+      scope?.kind === "platform"
+        ? studioId
+        : scope?.kind === "studio"
+          ? scope.studioId
+          : undefined;
     const studio = target === undefined ? null : await ctx.db.get(target);
-    const platform = scope.kind === "platform";
 
     // No studio picked by the operator: every studio's classes, which is what
     // this list showed before studios existed.
@@ -185,7 +194,14 @@ export const viewerRole = query({
     }
     const scope = await scopeFor(ctx, userId);
     if (scope === null) {
-      return { signedIn: true, isStaff: false, isPlatformAdmin: false, studio: null };
+      // No studio row yet (pre-backfill): answer the way this did before
+      // studios, so a teacher is not shown the student view for a deploy.
+      return {
+        signedIn: true,
+        isStaff: await legacyStaff(ctx, userId),
+        isPlatformAdmin: false,
+        studio: null,
+      };
     }
     if (scope.kind === "platform") {
       return { signedIn: true, isStaff: true, isPlatformAdmin: true, studio: null };
@@ -330,14 +346,22 @@ export const createClass = mutation({
     // A class belongs to a studio: the caller's own, or the one the platform
     // admin is looking at. A student never creates one.
     const scope = await scopeFor(ctx, userId);
-    if (scope === null || scope.kind === "student") {
+    if (scope === null) {
+      // Pre-backfill a teacher may still create a class; the backfill puts it
+      // into the default studio along with everything else.
+      if (!(await legacyStaff(ctx, userId))) {
+        return { ok: false, error: "Only a teacher can create a class.", code: null, name: null };
+      }
+    } else if (scope.kind === "student") {
       return { ok: false, error: "Only a teacher can create a class.", code: null, name: null };
     }
     const studio =
-      scope.kind === "platform"
-        ? (studioId ?? (await ctx.db.query("studios").first())?._id)
-        : scope.studioId;
-    if (studio === undefined) {
+      scope === null
+        ? undefined
+        : scope.kind === "platform"
+          ? (studioId ?? (await ctx.db.query("studios").first())?._id)
+          : scope.studioId;
+    if (scope !== null && studio === undefined) {
       return {
         ok: false,
         error: "Create a studio first — a class belongs to one.",

@@ -9,7 +9,7 @@ import {
   query,
 } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
-import { scopeFor } from "./studios";
+import { legacyStaff, scopeFor } from "./studios";
 
 type DbCtx = Parameters<typeof scopeFor>[0];
 
@@ -22,7 +22,9 @@ async function managesClasses(
   userId: Id<"users">,
 ): Promise<boolean> {
   const scope = await scopeFor(ctx, userId);
-  return scope !== null && scope.kind !== "student";
+  // No studio row yet (pre-backfill): the pre-studios staff test applies.
+  if (scope === null) return await legacyStaff(ctx, userId);
+  return scope.kind !== "student";
 }
 
 /**
@@ -740,10 +742,22 @@ export async function vaultIsConnected(ctx: {
   return tokens !== null;
 }
 
-/** The NatyaVault folder in the user's Drive, created on first use. */
-async function ensureFolder(accessToken: string): Promise<string> {
+/**
+ * One folder in a Drive, created on first use.
+ *
+ * The name is the studio's folder (`nvshubhaschoolofarts`) when the upload
+ * belongs to the class archive, and `NatyaVault` for an upload going into the
+ * uploader's own Drive. A folder that already exists is adopted rather than
+ * duplicated, so a retry or a folder the admin made by hand is reused.
+ */
+async function ensureFolder(
+  accessToken: string,
+  folderName: string,
+): Promise<string> {
+  // The name reaches a Drive query string, so an apostrophe must not end it.
+  const safeName = folderName.replace(/'/g, "\\'");
   const query = encodeURIComponent(
-    `name='${FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+    `name='${safeName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
   );
   const found = await timedFetch(
     `${DRIVE_API}/files?q=${query}&spaces=drive&fields=files(id)`,
@@ -761,13 +775,13 @@ async function ensureFolder(accessToken: string): Promise<string> {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      name: FOLDER_NAME,
+      name: folderName,
       mimeType: "application/vnd.google-apps.folder",
     }),
   });
   const json = (await created.json()) as { id?: string; error?: unknown };
   if (!created.ok || !json.id) {
-    throw new Error("Could not create the NatyaVault folder in your Drive.");
+    throw new Error(`Could not create the ${folderName} folder in Drive.`);
   }
   return json.id;
 }
@@ -783,8 +797,14 @@ async function ensureFolder(accessToken: string): Promise<string> {
  * Only the resulting file id comes back to us, to record it.
  */
 export const startUpload = action({
-  args: { name: v.string(), mimeType: v.string(), size: v.number() },
-  handler: async (ctx, { name, mimeType, size }) => {
+  args: {
+    name: v.string(),
+    mimeType: v.string(),
+    size: v.number(),
+    /** The class the upload belongs to: it names the studio, and its folder. */
+    code: v.optional(v.string()),
+  },
+  handler: async (ctx, { name, mimeType, size, code }) => {
     const userId = await getAuthUserId(ctx);
     if (userId === null) throw new Error("Sign in first.");
 
@@ -799,7 +819,26 @@ export const startUpload = action({
     } catch {
       accessToken = await accessTokenFor(ctx, userId);
     }
-    const folderId = await ensureFolder(accessToken);
+    // Each studio's uploads live in their own folder of the shared archive, so
+    // one school's files never sit loose beside another's. A studio's folder id
+    // is cached on its row after the first upload creates or adopts it.
+    const studioFolder =
+      target === "vault" && code
+        ? await ctx.runQuery(internal.studios.folderForClass, { code })
+        : null;
+    let folderId = studioFolder?.folderId ?? null;
+    if (folderId === null) {
+      folderId = await ensureFolder(
+        accessToken,
+        studioFolder?.folderName ?? FOLDER_NAME,
+      );
+      if (studioFolder !== null) {
+        await ctx.runMutation(internal.studios.setFolderId, {
+          studioId: studioFolder.studioId,
+          folderId,
+        });
+      }
+    }
 
     const response = await timedFetch(
       `${DRIVE_UPLOAD_API}/files?uploadType=resumable&fields=id,name,size`,

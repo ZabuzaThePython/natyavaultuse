@@ -77,6 +77,12 @@ const ROLES: {
 
 const USERNAME_PATTERN = /^[A-Za-z0-9._@-]{3,32}$/;
 
+/** The two ways a teacher's sign-up can place them in a studio. */
+const STUDIO_MODES = [
+  { value: "join" as const, label: "Join a studio" },
+  { value: "create" as const, label: "Start a studio" },
+];
+
 function Auth({ redirectAfterAuth }: AuthProps = {}) {
   const { isLoading: authLoading, isAuthenticated, signIn } = useAuth();
   const convex = useConvex();
@@ -111,6 +117,11 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
   );
   const [role, setSelectedRole] = useState<Role>("student");
   const [classCode, setClassCode] = useState("");
+  // A teacher's sign-up also names a studio: join one with its code, or start
+  // one. A student's comes from their class code instead.
+  const [studioMode, setStudioMode] = useState<"join" | "create">("join");
+  const [studioCode, setStudioCode] = useState("");
+  const [studioName, setStudioName] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -125,8 +136,15 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
   // teacher gave them; it is what puts them in the right class. (A teacher
   // signs up without one and creates classes from the Classes page.)
   const needsClassCode = mode === "signUp" && role !== "teacher";
+  // Every teacher belongs to a studio — their school — from the moment the
+  // account exists; otherwise their classes would belong to nobody.
+  const needsStudio = mode === "signUp" && role === "teacher";
   const normalizedCode = classCode.trim().toUpperCase();
   const codeCheck = useQuery(api.classes.validateCode, { code: normalizedCode });
+  const normalizedStudioCode = studioCode.trim().toUpperCase();
+  const studioCheck = useQuery(api.studios.validateCode, {
+    code: needsStudio && studioMode === "join" ? normalizedStudioCode : "",
+  });
 
   const switchMode = (next: "signUp" | "signIn") => {
     if (isLoading) return;
@@ -189,6 +207,16 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
     if (mode === "signUp" && password !== confirmation) {
       setError("Those passwords don't match yet.");
       return;
+    }
+    if (needsStudio) {
+      if (studioMode === "join" && normalizedStudioCode.length !== 6) {
+        setError("Enter the six-character studio code your school gave you.");
+        return;
+      }
+      if (studioMode === "create" && studioName.trim().length < 2) {
+        setError("Give your studio a name — it is what your classes show.");
+        return;
+      }
     }
     if (needsClassCode) {
       if (normalizedCode.length !== 6) {
@@ -270,6 +298,25 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
       // back to this account, not to a blank "who are you?" (see
       // src/lib/last-account.ts).
       rememberAccount(username);
+      if (mode === "signUp" && needsStudio) {
+        // Place the new teacher in their studio. A failure here is reported but
+        // does not undo the account: the Admin/Classes area can set it up.
+        try {
+          const result =
+            studioMode === "join"
+              ? await convex.mutation(api.studios.joinStudio, {
+                  code: normalizedStudioCode,
+                })
+              : await convex.mutation(api.studios.createStudio, {
+                  name: studioName.trim(),
+                });
+          if (!result.ok) {
+            console.warn("Studio set-up at sign-up:", result.error);
+          }
+        } catch (caught) {
+          console.error("Studio set-up at sign-up failed:", caught);
+        }
+      }
       if (mode === "signUp" && needsClassCode) {
         // The class this browser opens, straight away — no second code entry.
         setActiveClass(normalizedCode);
@@ -409,6 +456,75 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                         );
                       })}
                     </div>
+                  </div>
+                )}
+
+                {/* Studio — a teacher joins one with its code, or starts one */}
+                {needsStudio && (
+                  <div className="space-y-1.5">
+                    <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      Your studio
+                    </span>
+                    <div className="grid grid-cols-2 gap-2">
+                      {STUDIO_MODES.map((option) => {
+                        const selected = studioMode === option.value;
+                        return (
+                          <button
+                            key={option.value}
+                            type="button"
+                            disabled={isLoading}
+                            aria-pressed={selected}
+                            onClick={() => {
+                              setStudioMode(option.value);
+                              setError(null);
+                            }}
+                            className={
+                              selected
+                                ? "cursor-pointer rounded-lg border border-primary bg-primary px-3 py-2 text-left text-sm font-semibold text-primary-foreground transition-colors"
+                                : "cursor-pointer rounded-lg border border-border bg-card px-3 py-2 text-left text-sm font-semibold text-foreground transition-colors hover:border-primary/50 hover:bg-muted"
+                            }
+                          >
+                            {option.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <div className="relative">
+                      <KeyRound className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        name="studio"
+                        value={studioMode === "join" ? studioCode : studioName}
+                        onChange={(event) =>
+                          studioMode === "join"
+                            ? setStudioCode(
+                                event.target.value
+                                  .toUpperCase()
+                                  .replace(/[^A-Z0-9]/g, "")
+                                  .slice(0, 6),
+                              )
+                            : setStudioName(event.target.value)
+                        }
+                        placeholder={
+                          studioMode === "join"
+                            ? "Studio code from your school"
+                            : "Name of your school"
+                        }
+                        autoComplete="off"
+                        autoCapitalize={
+                          studioMode === "join" ? "characters" : "sentences"
+                        }
+                        spellCheck={false}
+                        disabled={isLoading}
+                      />
+                    </div>
+                    {studioMode === "join" && studioCheck?.ok ? (
+                      <p className="text-xs text-muted-foreground">
+                        Joining{" "}
+                        <span className="font-medium text-foreground">
+                          {studioCheck.name}
+                        </span>
+                      </p>
+                    ) : null}
                   </div>
                 )}
 

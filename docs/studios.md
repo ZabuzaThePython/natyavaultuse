@@ -5,14 +5,30 @@ sees every class, one class-archive Drive. This document designs the layer above
 it — a **studio** — so several schools can share the deployment and see nothing
 of each other.
 
-Status: **phase 1 is built** — the schema, `classAccess` at every call site, the
-admin-gated backfill and the admin's studio picker. Phases 2–5 are designed and
-not built; the table at the end says what each one touches.
+Status: **phases 1 and 2 are built**, and so is the per-studio folder in the
+archive Drive (the storage half of phase 4). The studio management page (3), the
+platform studio list (5) and the `mediaStore`/R2 seam are designed, not built.
 
 To turn it on for an existing deployment: deploy the code, sign in as the admin,
 and press **Set up studios** where the school picker will be (bottom of the
 sidebar's Studio group). Everything lands in one studio that adopts the
 `NatyaVault` folder already in the archive Drive.
+
+## The deploy window is safe
+
+Deploying this code before the backfill runs leaves every account with **no**
+`studioMembers` row and every class with **no** `studioId`. A naive "no studio,
+no access" rule would lock the whole school out of its own classes between the
+deploy and the backfill, so `classAccess` falls back to the rule that was in
+force before studios (`legacyStaff`: the admin, a `classRole: "teacher"`
+account, or an account that owns a class) whenever an account has no studio row.
+`allClasses`, `viewerRole`, `createClass`, the chat moderation checks and the
+Drive archive check use the same fallback. Once the backfill has run, every
+account has a scope and the fallback is never consulted.
+
+`scripts/check-studio-access.ts` exercises the real rule with an in-memory
+database in both states — before the backfill (teacher, student, admin) and after
+it (two studios) — and prints a pass/fail line per case.
 
 ## The tenancy boundary
 
@@ -180,10 +196,10 @@ security change, which is why it should be done first and in one commit.
 ## Storage: one Drive, one folder per studio (for now)
 
 The archive stays **one Google account** (`vaultDriveTokens`, one row) and each
-studio gets a folder in it. `drive.ts` already does exactly this for the single
-folder it knows today — `FOLDER_NAME = "NatyaVault"` and `ensureFolder()` at
-`drive.ts:729` — so the change is to make that name per studio instead of a
-constant:
+studio gets a folder in it. `ensureFolder(accessToken, folderName)` does the
+work — find by name, else create, so a retry or a hand-made folder is adopted
+rather than duplicated — and `startUpload` now takes the class code, because the
+destination folder is a property of the studio, not of the browser:
 
 ```ts
 export const startUpload = action({
@@ -338,9 +354,9 @@ Re-running is safe: steps skip rows that already carry the field.
 | # | Scope | Files | Risk |
 |---|---|---|---|
 | 1 | **Built.** Schema, `scopeFor` / `classAccess`, all call sites, backfill, admin studio picker | `schema.ts`, new `codes.ts`, `studios.ts`, `migrations.ts`, `classes.ts`, `practice.ts`, `attendance.ts`, `vault.ts`, `chats.ts`, `drive.ts`, `lib/studios.ts`, `AppShell.tsx` | the security change — one commit, reviewed as a whole |
-| 2 | Sign-up: teacher studio code / new studio; student code → studio | `auth/password.ts`, `pages/Auth.tsx` | touches account creation, so it needs a fresh-account test |
+| 2 | **Built.** Sign-up: a teacher enters a studio code or a new studio's name; a student's class code already names the studio | `pages/Auth.tsx`, `studios.validateCode`, `createStudio`, `joinStudio` | touches account creation, so it needs a fresh-account test |
 | 3 | Studio page, teacher management, class list per studio | `pages/Studio.tsx`, `main.tsx`, `components/AppShell.tsx`, `studios.ts` | UI only |
-| 4 | Per-studio **folder** in the shared archive; `startUpload` takes the class code; `mediaStore` seam so R2 is one new module | `drive.ts`, new `studios.ts` helper, `schema.ts`, `pages/MediaVault.tsx` | low — one folder per studio, existing archive adopted as-is |
+| 4 | **Folder half built**: `startUpload` takes the class code, `studios.folderForClass` resolves the studio, `ensureFolder` creates or adopts `nv…`, and `driveFolderId` is cached on the studio. Still to do: the `mediaStore` seam so R2 is one new module | `drive.ts`, `studios.ts`, `lib/drive.ts`, `pages/MediaVault.tsx` | low — the existing archive is adopted as-is |
 | 5 | Platform admin: studio list, suspend | `admin.ts`, `pages/Admin.tsx` | low |
 
 Phase 1 leaves the app working exactly as it does today with a single studio, so
