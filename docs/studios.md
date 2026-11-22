@@ -50,8 +50,8 @@ for it to be wrong (a row whose studio disagrees with its class). The design put
 the tenant on the two things that own it — `classes` and `users` — and leaves the
 rest alone.
 
-The one exception is `vaultDriveTokens`: it is keyed by a literal `"vault"`, so
-it holds one archive for the whole deployment. That has to become per studio.
+The archive Drive is the one thing that needs care, and it stays one connection:
+each studio gets a folder inside it (see *Storage* below).
 
 ## Schema
 
@@ -67,6 +67,10 @@ studios: defineTable({
   /** The teacher who created it. May rename it, add and remove teachers. */
   ownerId: v.id("users"),
   ownerName: v.string(),
+  /** Folder in the archive Drive: fixed at creation, `nv` + the name's slug. */
+  folderName: v.string(),
+  /** Drive folder id, cached the first time an upload creates or adopts it. */
+  driveFolderId: v.optional(v.string()),
   /** Closed studios refuse new teacher joins; students are unaffected. */
   joinOpen: v.boolean(),
   /** Set by the platform admin to freeze a studio without deleting it. */
@@ -102,9 +106,8 @@ studioId: v.id("studios"),   // the tenant this class belongs to
 with `.index("by_studio", ["studioId"])`. The existing `by_code` index stays the
 unique lookup every shared table uses.
 
-`vaultDriveTokens` changes meaning: `key` becomes `studio:<studioId>` and a
-`studioId` column is added. The legacy `"vault"` row is migrated to the default
-studio, so one studio keeps its archive and the others start unconnected.
+`vaultDriveTokens` does not change: one row, one archive. Studios are separated
+by folder inside it, not by a second Google connection.
 
 ### Why a table instead of `users.studioId`
 
@@ -168,6 +171,87 @@ security change, which is why it should be done first and in one commit.
 | `chats.createGroup`, `ensureAllClassChats`, `ensureClassChat` | any class, any person | only people and classes in the caller's studio |
 | `drive.viewerManagesClasses` | `maySeeEveryClass` | teacher/owner of a studio (for that studio's archive) |
 
+## Storage: one Drive, one folder per studio (for now)
+
+The archive stays **one Google account** (`vaultDriveTokens`, one row) and each
+studio gets a folder in it. `drive.ts` already does exactly this for the single
+folder it knows today — `FOLDER_NAME = "NatyaVault"` and `ensureFolder()` at
+`drive.ts:729` — so the change is to make that name per studio instead of a
+constant:
+
+```ts
+export const startUpload = action({
+  // The class code is what identifies the studio: same argument the vault page
+  // already holds, and the folder is a property of the studio, not the browser.
+  args: { name: v.string(), mimeType: v.string(), size: v.number(), code: v.optional(v.string()) },
+  …
+});
+
+/** `nv` + the studio name with everything but letters and digits dropped. */
+function folderNameFor(name: string): string {
+  const slug = name.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 60);
+  return `nv${slug || "studio"}`;
+}
+
+async function ensureStudioFolder(accessToken: string, studio: Doc<"studios">) {
+  if (studio.driveFolderId) return studio.driveFolderId;         // cached
+  const id = await ensureFolder(accessToken, studio.folderName); // find by name, else create
+  await ctx.runMutation(internal.studios.setFolderId, { studioId: studio._id, folderId: id });
+  return id;
+}
+```
+
+| studio name | folder |
+|---|---|
+| Shubha School of Arts | `nvshubhaschoolofarts` |
+| Natya Manjari | `nvnatyamanjari` |
+| (the school that exists today) | `NatyaVault` — the folder already holding its files |
+
+The rules that keep it from going wrong:
+
+- **The name is fixed at creation.** Renaming a studio changes its display name
+  only; the folder is looked up by id from then on, so a rename never strands
+  files or creates a second folder.
+- **Uniqueness is checked on insert** (`studios.folderName`), adding `-2`, `-3`
+  when two schools pick the same name.
+- **Find-then-create**, not create-always: a folder that already exists (a retry,
+  or one the admin made by hand) is adopted rather than duplicated. Two uploads
+  racing on a brand-new studio can each create a folder; the first id recorded
+  wins and the stray empty folder is harmless — worth a note, not a lock.
+- **The existing archive is adopted, not moved.** The school that exists today
+  gets `folderName: "NatyaVault"`, which is exactly the folder its files are
+  already in, so the backfill moves no bytes.
+- **Personal uploads are unchanged**: no `code` (or no class archive connected)
+  keeps today's behaviour — the uploader's own Drive.
+
+Playback does not change at all: one token serves every folder, and the
+per-class, per-studio check still gates the media grant.
+
+## Later: Cloudflare R2
+
+Going public means other schools' media should not live in one Google account,
+so the switch is R2 — and the folder model above maps onto it one to one. Two
+additions make the swap a change of one module rather than every caller:
+
+```ts
+// schema.ts
+vaultMedia: defineTable({
+  …,
+  /** Which backend holds the bytes. Missing = "drive" (existing rows). */
+  storage: v.optional(v.union(v.literal("drive"), v.literal("r2"))),
+  /** R2 object key, e.g. studios/<studioId>/<uuid>. */
+  objectKey: v.optional(v.string()),
+});
+```
+
+`convex/mediaStore.ts` holds the three operations the app needs — `uploadUrl`,
+`playUrl`, `remove` — with a Drive implementation (today's `drive.ts` code) and an
+R2 one behind the same signatures. `studios/folderName` becomes the R2 prefix
+(`studios/<studioId>/`) instead of a Drive folder name, `mediaGrants` keeps
+gating playback so no signed URL is ever handed to a client that did not pass
+`classAccess`, and `pages/MediaVault.tsx` stops calling `drive.*` directly and
+calls `media.*`.
+
 ## Onboarding
 
 The join code stays the only thing a person types, which keeps the sign-up card
@@ -217,19 +301,20 @@ once after deploy, does the work idempotently and reports what it did:
    - otherwise the studio of their `classMembers` class;
    - anybody left over (no class, no role) → `student` of the default studio, and
      counted in the report so the admin can look at them.
-4. The legacy `vaultDriveTokens` row (`key: "vault"`) → `key: "studio:<default>"`,
-   `studioId` set, so the existing archive keeps working.
+4. No Drive work: the existing `NatyaVault` folder in the archive becomes the
+   default studio's `folderName`, so its files stay exactly where they are.
 
 Re-running is safe: steps skip rows that already carry the field.
 
 ## Consequences worth knowing before we start
 
-1. **The class-archive Drive has to become per studio.** It is currently one
-   Google account for the whole deployment (`vaultDriveTokens.key = "vault"`).
-   Two studios sharing it would mix one school's videos into the other's vault —
-   and its owner would be able to read both. This is phase 4 and it is the only
-   part that needs a real decision (one archive per studio, connected by that
-   studio's owner).
+1. **One archive, many folders means one account can read every school.** That
+   is the deliberate trade for now: one `vaultDriveTokens` row, one folder per
+   studio, no per-school Google setup. The isolation between studios is the
+   `classAccess` check, not the storage, so whoever controls the archive account
+   (or its refresh token) can read every school's media. Acceptable while the
+   other studios are yours; moving to R2 before opening up to real schools is
+   the right call, and the folder layout already carries over.
 2. **Group chats narrow to the studio.** `chats.createGroup` today offers "any mix
    of people"; that list becomes the caller's studio.
 3. **Settings stay platform-wide for now.** `practiceLog`, `gifs`, `publicMode`
@@ -249,7 +334,7 @@ Re-running is safe: steps skip rows that already carry the field.
 | 1 | Schema, `scopeFor` / `classAccess`, all call sites, backfill | `schema.ts`, new `studios.ts`, `classes.ts`, `practice.ts`, `attendance.ts`, `vault.ts`, `chats.ts`, `drive.ts`, new `migrations.ts` | the security change — done in one commit, reviewed as a whole |
 | 2 | Sign-up: teacher studio code / new studio; student code → studio | `auth/password.ts`, `pages/Auth.tsx` | touches account creation, so it needs a fresh-account test |
 | 3 | Studio page, teacher management, class list per studio | `pages/Studio.tsx`, `main.tsx`, `components/AppShell.tsx`, `studios.ts` | UI only |
-| 4 | Per-studio Drive archive | `drive.ts`, `schema.ts`, `pages/MediaVault.tsx` | needs each studio to connect its own Drive |
+| 4 | Per-studio **folder** in the shared archive; `startUpload` takes the class code; `mediaStore` seam so R2 is one new module | `drive.ts`, new `studios.ts` helper, `schema.ts`, `pages/MediaVault.tsx` | low — one folder per studio, existing archive adopted as-is |
 | 5 | Platform admin: studio list, suspend | `admin.ts`, `pages/Admin.tsx` | low |
 
 Phase 1 leaves the app working exactly as it does today with a single studio, so
