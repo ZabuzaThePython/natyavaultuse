@@ -132,6 +132,33 @@ export function storageProbe(): { local: boolean; session: boolean } {
   return result;
 }
 
+/** The two admin controls whose disappearance is being tracked. */
+export interface AdminViewState {
+  /** The studio picker: true/false once its list has loaded, null before. */
+  picker: boolean | null;
+  /** The Classes and Studio entries in the menu. */
+  nav: boolean;
+}
+
+/**
+ * What changed between two states of the admin controls. A picker that is
+ * simply still loading (null) is not a change in either direction.
+ */
+export function adminViewChange(
+  previous: AdminViewState | null,
+  current: AdminViewState,
+): "first" | "vanished" | "restored" | null {
+  if (previous === null) return "first";
+  const vanished =
+    (previous.picker === true && current.picker === false) ||
+    (previous.nav && !current.nav);
+  if (vanished) return "vanished";
+  const restored =
+    (previous.picker === false && current.picker === true) ||
+    (!previous.nav && current.nav);
+  return restored ? "restored" : null;
+}
+
 function clock(at: number): string {
   const time = new Date(at).toLocaleTimeString(undefined, { hour12: false });
   return `${time}.${String(at % 1000).padStart(3, "0")}`;

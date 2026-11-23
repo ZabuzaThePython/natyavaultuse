@@ -34,7 +34,12 @@ import { api } from "@/convex/_generated/api";
 import { useAuth } from "@/hooks/use-auth";
 import { useIsAdmin, lockAdmin } from "@/lib/admin";
 import { useBuildWatcher } from "@/lib/build-watch";
-import { recordDiagnosis, storageProbe } from "@/lib/admin-diagnostics";
+import {
+  adminViewChange,
+  recordDiagnosis,
+  storageProbe,
+  type AdminViewState,
+} from "@/lib/admin-diagnostics";
 import { forgetRoles } from "@/lib/role-memory";
 import {
   markLocalPracticeImported,
@@ -503,14 +508,11 @@ export default function AppShell() {
   // time they vanish the answers that caused it can be read instead of guessed
   // at (see lib/admin-diagnostics). Nothing here changes what is rendered.
   const pickerVisible = isPlatformAdmin && studios.length > 0;
-  const previousAdminView = useRef<{
-    picker: boolean | null;
-    nav: boolean;
-  } | null>(null);
+  const previousAdminView = useRef<AdminViewState | null>(null);
   useEffect(() => {
     // While studios are still loading the picker is legitimately absent, so it
     // counts as "not yet known" rather than as having appeared or vanished.
-    const current: { picker: boolean | null; nav: boolean } = {
+    const current: AdminViewState = {
       picker: studiosLoading ? null : pickerVisible,
       nav: canManageClasses,
     };
@@ -528,7 +530,9 @@ export default function AppShell() {
       isPlatformAdmin,
       storage: storageProbe(),
     });
-    if (previous === null) {
+    const change = adminViewChange(previous, current);
+    if (change === null) return;
+    if (change === "first") {
       recordDiagnosis("shell", {
         event: "first paint",
         ...snapshot(),
@@ -536,17 +540,10 @@ export default function AppShell() {
       });
       return;
     }
-    const vanished =
-      (previous.picker === true && current.picker === false) ||
-      (previous.nav && !current.nav);
-    const restored =
-      (previous.picker === false && current.picker === true) ||
-      (!previous.nav && current.nav);
-    if (!vanished && !restored) return;
     recordDiagnosis(
       "shell",
       { ...snapshot(), before: previous, after: current },
-      vanished ? { vanished: true } : { restored: true },
+      change === "vanished" ? { vanished: true } : { restored: true },
     );
   }, [
     pickerVisible,
