@@ -110,6 +110,12 @@ export function unlockAdmin(username: string, password: string) {
     // Storage unavailable — the flag just won't persist past this page.
   }
   current = true;
+  // Named in the diagnostics so a later "stored: true" is never a mystery.
+  recordDiagnosis("hasAdminAccess", {
+    event: "unlocked",
+    account,
+    by: "admin credentials accepted",
+  });
   emit();
 }
 
@@ -163,6 +169,13 @@ export function lockAdmin() {
   memoryCreds = null;
   sessionConfirmed.clear();
   current = false;
+  // The only thing that removes these keys is a sign-out, so say it here
+  // rather than leaving a later "stored: false" to be guessed at.
+  recordDiagnosis("hasAdminAccess", {
+    event: "locked",
+    reason: "sign-out clears this browser's admin unlock",
+    grantKept: readGrant(getLastAccount()?.username?.toLowerCase()),
+  });
   emit();
 }
 
@@ -324,6 +337,19 @@ export function useAdminAccess(): { isAdmin: boolean; loading: boolean } {
       operator,
       platformAdmin: isPlatformAdmin,
       holdsCredentials,
+      // What is actually written down right now, so "the module thinks it is
+      // locked" can be told apart from "the browser lost the keys".
+      keys: (() => {
+        try {
+          const store = getLocalStore();
+          return {
+            flag: store.getItem(KEY) === "1",
+            creds: store.getItem(CREDS_KEY) !== null,
+          };
+        } catch {
+          return "unreadable";
+        }
+      })(),
       isAdmin,
     }),
     [
