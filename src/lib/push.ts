@@ -135,6 +135,41 @@ export function notificationsPromptDue(): boolean {
   }
 }
 
+const ZONE_KEY = "natyavault.pushTimeZone.v1";
+
+/**
+ * This device's IANA time zone (e.g. "Asia/Kolkata"), as the browser reports
+ * it. Sent with the subscription so the monthly fee reminder can arrive at 9am
+ * where the student actually is. Null when the browser cannot say.
+ */
+export function currentTimeZone(): string | null {
+  try {
+    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return typeof zone === "string" && zone.length > 0 && zone.length <= 64
+      ? zone
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The zone this device last saved, so a trip re-syncs it exactly once. */
+export function lastSyncedTimeZone(): string | null {
+  try {
+    return localStorage.getItem(ZONE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function markTimeZoneSynced(zone: string) {
+  try {
+    localStorage.setItem(ZONE_KEY, zone);
+  } catch {
+    // Private mode — the saved zone simply stays as it was.
+  }
+}
+
 /** Remember that the prompt was shown, so it does not keep reappearing. */
 export function markNotificationsPromptSeen() {
   try {

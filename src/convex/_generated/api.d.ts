@@ -18,6 +18,7 @@ import type * as calls from "../calls.js";
 import type * as chats from "../chats.js";
 import type * as classes from "../classes.js";
 import type * as codes from "../codes.js";
+import type * as crons from "../crons.js";
 import type * as drive from "../drive.js";
 import type * as fees from "../fees.js";
 import type * as gifs from "../gifs.js";
@@ -51,6 +52,7 @@ declare const fullApi: ApiFromModules<{
   chats: typeof chats;
   classes: typeof classes;
   codes: typeof codes;
+  crons: typeof crons;
   drive: typeof drive;
   fees: typeof fees;
   gifs: typeof gifs;

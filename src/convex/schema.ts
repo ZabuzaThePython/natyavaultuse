@@ -469,6 +469,12 @@ const schema = defineSchema(
       p256dh: v.string(),
       auth: v.string(),
       userAgent: v.optional(v.string()),
+      /**
+       * The device's own IANA time zone, as the browser reports it (e.g.
+       * "Asia/Kolkata"). The fee reminder uses it so 9am means 9am where the
+       * student is; missing rows fall back to India time.
+       */
+      timeZone: v.optional(v.string()),
       createdAt: v.number(),
     })
       .index("by_user", ["userId"])

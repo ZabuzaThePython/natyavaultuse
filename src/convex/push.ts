@@ -38,10 +38,23 @@ export const devices = query({
   },
 });
 
+/** Whether the runtime can actually resolve this IANA zone name. */
+function validTimeZone(zone: string): boolean {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: zone }).format(new Date());
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Save this device's subscription. The endpoint is the browser's own id for
  * the device, so re-subscribing updates the row instead of adding a duplicate
  * — and if a different account used this device before, it moves to them.
+ *
+ * `timeZone` is the zone the browser reports for itself; the monthly fee
+ * reminder schedules each device's 9am by it (see convex/fees.ts).
  */
 export const subscribe = mutation({
   args: {
@@ -49,8 +62,9 @@ export const subscribe = mutation({
     p256dh: v.string(),
     auth: v.string(),
     userAgent: v.optional(v.string()),
+    timeZone: v.optional(v.string()),
   },
-  handler: async (ctx, { endpoint, p256dh, auth, userAgent }) => {
+  handler: async (ctx, { endpoint, p256dh, auth, userAgent, timeZone }) => {
     const userId = await getAuthUserId(ctx);
     if (userId === null) return { ok: false as const, error: "Sign in first." };
     const trimmed = endpoint.trim();
@@ -65,6 +79,11 @@ export const subscribe = mutation({
       return { ok: false as const, error: "That subscription looks wrong." };
     }
 
+    // Keep whatever zone the device had if this call could not name one.
+    const zone = timeZone?.trim();
+    const savedZone =
+      zone && zone.length <= 64 && validTimeZone(zone) ? zone : undefined;
+
     const existing = await ctx.db
       .query("pushSubscriptions")
       .withIndex("by_endpoint", (q) => q.eq("endpoint", trimmed))
@@ -75,6 +94,7 @@ export const subscribe = mutation({
         p256dh,
         auth,
         userAgent,
+        ...(savedZone ? { timeZone: savedZone } : {}),
       });
     } else {
       await ctx.db.insert("pushSubscriptions", {
@@ -83,6 +103,7 @@ export const subscribe = mutation({
         p256dh,
         auth,
         userAgent,
+        ...(savedZone ? { timeZone: savedZone } : {}),
         createdAt: Date.now(),
       });
     }

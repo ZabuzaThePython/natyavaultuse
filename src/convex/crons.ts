@@ -6,15 +6,16 @@ const crons = cronJobs();
 /**
  * The monthly fee reminder.
  *
- * Runs every morning (03:30 UTC — 09:00 in India, where the studios are) and
- * sends only on the first and last day of the month, decided in the handler
- * (see convex/fees.ts → queueFeeReminders). Checking daily rather than on two
- * fixed dates means a deploy or an outage on one of them cannot skip a
- * reminder — the next morning catches the last day.
+ * Runs every hour, on the half hour, and sends at 9am in each student's own
+ * time zone on the first and last day of their month (see convex/fees.ts →
+ * queueFeeReminders). The time zone comes from the browser that turned
+ * notifications on, so an hourly tick is what lets every zone get its own 9am
+ * instead of a single fixed moment for the whole deployment. The handler exits
+ * early when no zone is due, so most runs cost one small read.
  */
-crons.daily(
+crons.hourly(
   "monthly fee reminders",
-  { hourUTC: 3, minuteUTC: 30 },
+  { minuteUTC: 30 },
   internal.fees.queueFeeReminders,
   {},
 );

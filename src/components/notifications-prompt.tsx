@@ -12,7 +12,10 @@ import { detectPlatform, isStandalone } from "@/lib/install";
 import {
   INSTALL_FINISHED_EVENT,
   currentEndpoint,
+  currentTimeZone,
+  lastSyncedTimeZone,
   markNotificationsPromptSeen,
+  markTimeZoneSynced,
   notificationPermission,
   notificationsPromptDue,
   pushSupported,
@@ -88,6 +91,36 @@ export function NotificationsPrompt({
     };
   }, []);
 
+  // Keep the saved time zone in step with this device's clock. The browser
+  // names its own zone without asking, so opening the app somewhere new (or
+  // after a daylight-saving switch) refreshes it once and the monthly fee
+  // reminder lands at 9am local time from then on.
+  useEffect(() => {
+    if (!publicKey) return;
+    if (notificationPermission() !== "granted" || endpoint === null) return;
+    if (!(devices ?? []).includes(endpoint)) return;
+    const zone = currentTimeZone();
+    if (!zone || lastSyncedTimeZone() === zone) return;
+    let cancelled = false;
+    void (async () => {
+      const subscription = await subscribeThisDevice(publicKey);
+      if (!subscription || cancelled) return;
+      const result = await saveSubscription({
+        endpoint: subscription.endpoint,
+        p256dh: subscription.keys.p256dh,
+        auth: subscription.keys.auth,
+        userAgent: navigator.userAgent.slice(0, 200),
+        timeZone: zone,
+      });
+      if (result.ok) markTimeZoneSynced(zone);
+    })().catch(() => {
+      // A failed sync only leaves the old zone in place — try again next open.
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [publicKey, endpoint, devices, saveSubscription]);
+
   const setOpen = (next: boolean) => {
     if (!next) markNotificationsPromptSeen();
     if (onOpenChange) onOpenChange(next);
@@ -139,16 +172,19 @@ export function NotificationsPrompt({
         setError("Couldn't set up notifications on this device. Try again.");
         return;
       }
+      const zone = currentTimeZone();
       const result = await saveSubscription({
         endpoint: subscription.endpoint,
         p256dh: subscription.keys.p256dh,
         auth: subscription.keys.auth,
         userAgent: navigator.userAgent.slice(0, 200),
+        timeZone: zone ?? undefined,
       });
       if (!result.ok) {
         setError(result.error ?? "Couldn't save this device.");
         return;
       }
+      if (zone) markTimeZoneSynced(zone);
       setEndpoint(subscription.endpoint);
       toast.success("Notifications are on for this device.");
       setOpen(false);
