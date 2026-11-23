@@ -3,6 +3,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { getLocalStore } from "@/lib/auth-storage";
 import { useViewerIsStaff } from "@/lib/classes";
 import { getLastAccount } from "@/lib/last-account";
+import { isOperatorAccount } from "@/lib/role-memory";
 import { useMutation, useQuery } from "convex/react";
 import {
   useEffect,
@@ -258,8 +259,13 @@ export function useAdminAccess(): { isAdmin: boolean; loading: boolean } {
   // answer here — not in browser storage, which is what fills up — is what
   // stops the gate asking for the password again on the way back.
   const sticky = sessionConfirmed.has(accountKey(account));
+  // The operator's own session says who it is: the signed-in account id is
+  // answered by the deployment, so a query that has gone quiet cannot close the
+  // Admin area on the person who owns it. Every admin call is still authorised
+  // server-side.
+  const operator = isOperatorAccount(user?.email);
   const isAdmin =
-    stored || confirmed || cached || isPlatformAdmin || sticky;
+    stored || confirmed || cached || isPlatformAdmin || sticky || operator;
 
   useEffect(() => {
     if (!confirmed) return;

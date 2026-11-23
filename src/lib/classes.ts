@@ -13,7 +13,17 @@
  */
 import { api } from "@/convex/_generated/api";
 import { useAuth } from "@/hooks/use-auth";
-import { getLocalStore } from "@/lib/auth-storage";
+import {
+  browserRoleStores,
+  isOperatorAccount,
+  mergeRole,
+  readStoredRole,
+  rememberedRole,
+  rememberRole,
+  roleKey,
+  writeStoredRole,
+  type CachedRole,
+} from "@/lib/role-memory";
 import type { AttendanceEntry } from "@/lib/vault";
 import { useQuery } from "convex/react";
 import { getLastAccount } from "@/lib/last-account";
@@ -89,65 +99,12 @@ export interface ViewerRole {
   signedIn: boolean | null;
 }
 
-/** Last role the deployment confirmed for an account, kept per account. */
-const ROLE_CACHE_KEY = "natyavault.roles.v1";
-
 /**
- * The role the deployment confirmed during this page session, per account.
- *
- * Storage is the fallback, never the only memory: the vault's media shares that
- * quota, so a full browser refuses these writes without saying so, and the
- * cached role used to vanish with the storage — taking the admin's studio
- * picker, Classes entry and Admin badge with it across the next answer gap.
- * This holds the last confirmed answer for as long as the tab is open.
+ * The role memory itself lives in `@/lib/role-memory`: this visit's answer in
+ * memory, a copy of it in both browser stores, and the rule that a confirmed
+ * yes is never undone by a later quiet answer.
  */
-const sessionRoles = new Map<string, CachedRole>();
-
-function accountKey(account: string | undefined): string {
-  return (account ?? "#session").toLowerCase();
-}
-
-/** What the deployment last said about an account's place in the app. */
-export interface CachedRole {
-  staff: boolean;
-  /** The operator account: sees every studio, opens the studio controls. */
-  admin: boolean;
-}
-
-function readCachedRole(account: string | undefined): CachedRole | null {
-  if (!account) return null;
-  try {
-    const raw = getLocalStore().getItem(ROLE_CACHE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
-    const entry = parsed[account];
-    // Entries written before the admin flag existed are a bare boolean: they
-    // still mean "staff", they just know nothing about the operator.
-    if (typeof entry === "boolean") return { staff: entry, admin: false };
-    if (entry && typeof entry === "object") {
-      const value = entry as { staff?: unknown; admin?: unknown };
-      if (typeof value.staff === "boolean") {
-        return { staff: value.staff, admin: value.admin === true };
-      }
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-function writeCachedRole(account: string | undefined, role: CachedRole) {
-  if (!account) return;
-  try {
-    const raw = getLocalStore().getItem(ROLE_CACHE_KEY);
-    const parsed = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
-    const next = parsed && typeof parsed === "object" ? parsed : {};
-    next[account] = { staff: role.staff, admin: role.admin };
-    getLocalStore().setItem(ROLE_CACHE_KEY, JSON.stringify(next));
-  } catch {
-    // Storage refused the write — the role simply won't be remembered.
-  }
-}
+export type { CachedRole } from "@/lib/role-memory";
 
 /**
  * The account's real role, per the deployment.
@@ -206,23 +163,42 @@ export function useViewerIsStaff(): ViewerRole {
   // had to sign in again to get them back.
   const confirmedStaff = data?.signedIn === true ? data.isStaff : null;
   const confirmedAdmin = data?.signedIn === true ? data.isPlatformAdmin : null;
-  const key = accountKey(account);
-  // This visit's confirmed answer first, whatever was written down next.
-  const remembered = sessionRoles.get(key) ?? null;
-  const written = useMemo(() => readCachedRole(account), [account]);
-  const cached = remembered ?? written;
+  const key = roleKey(account);
+  // This visit's answer first, then whatever an earlier visit wrote down.
+  const written = useMemo(
+    () => readStoredRole(key, browserRoleStores()),
+    [key],
+  );
+  const remembered = rememberedRole(key) ?? written;
+  const confirmed: CachedRole | null =
+    confirmedStaff === null || confirmedAdmin === null
+      ? null
+      : { staff: confirmedStaff, admin: confirmedAdmin };
+  // A yes is sticky: a later quiet answer — a dropped socket, a token being
+  // refreshed, a deploy landing mid-flight — leaves the last confirmed role in
+  // place instead of dropping the operator to the student view.
+  const merged = mergeRole(remembered, confirmed);
+  // The operator's own session says who it is, with no query needed. This only
+  // decides which controls the shell shows (the deployment still authorises
+  // every call), and it means a quiet `viewerRole` can never hide the studio
+  // picker or the Classes/Studio entries from the account that owns them.
+  const operator = isOperatorAccount(user?.email);
 
   useEffect(() => {
     if (confirmedStaff === null || confirmedAdmin === null) return;
-    const role: CachedRole = { staff: confirmedStaff, admin: confirmedAdmin };
-    sessionRoles.set(key, role);
-    writeCachedRole(account, role);
-  }, [confirmedStaff, confirmedAdmin, account, key]);
+    const role = mergeRole(rememberedRole(key) ?? written, {
+      staff: confirmedStaff,
+      admin: confirmedAdmin,
+    });
+    if (role === null) return;
+    rememberRole(key, role);
+    writeStoredRole(key, role, browserRoleStores());
+  }, [confirmedStaff, confirmedAdmin, key, written]);
 
   return {
-    isStaff: confirmedStaff ?? cached?.staff ?? false,
-    isPlatformAdmin: confirmedAdmin ?? cached?.admin ?? false,
-    isLoading: data === undefined && cached === null,
+    isStaff: operator || merged?.staff === true,
+    isPlatformAdmin: operator || merged?.admin === true,
+    isLoading: data === undefined && merged === null && !operator,
     signedIn: data === undefined ? null : data.signedIn,
   };
 }

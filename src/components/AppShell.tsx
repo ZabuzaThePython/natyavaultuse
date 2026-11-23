@@ -32,6 +32,8 @@ import {
 import { api } from "@/convex/_generated/api";
 import { useAuth } from "@/hooks/use-auth";
 import { useIsAdmin, lockAdmin } from "@/lib/admin";
+import { useBuildWatcher } from "@/lib/build-watch";
+import { forgetRoles } from "@/lib/role-memory";
 import {
   markLocalPracticeImported,
   pendingLocalPractice,
@@ -357,6 +359,9 @@ export function BrandMark({ size = "md" }: { size?: "sm" | "md" }) {
 export default function AppShell() {
   const { user, signOut } = useAuth();
   const isAdmin = useIsAdmin();
+  // A tab left open should not keep running an older build after a publish —
+  // it offers a reload instead of silently going stale.
+  useBuildWatcher();
   // Whether this account is staff, decided by the deployment — not by the role
   // this browser happens to have stored (see convex/classes.ts viewerRole).
   const {
@@ -380,7 +385,7 @@ export default function AppShell() {
   // Studio heading chooses it, and the class list follows. A teacher's studio
   // is their own, and a student never sees this control at all.
   const { studioId: activeStudioId, setStudioId } = useActiveStudio();
-  const { studios } = useStudios();
+  const { studios, isLoading: studiosLoading } = useStudios();
   const myStudio = useMyStudio();
   // The studio the shell is looking at, named at the top of the menu.
   const studioName = useStudioName();
@@ -604,10 +609,12 @@ export default function AppShell() {
     .toUpperCase();
 
   const handleSignOut = async () => {
-    // Clear this browser's copy of the unlock. The deployment keeps the
-    // account's admin grant (see convex/admin.ts), so signing back in does not
-    // mean losing admin features or re-entering the credentials.
+    // Clear this browser's copy of the unlock and the remembered role. The
+    // deployment keeps the account's admin grant (see convex/admin.ts), so
+    // signing back in does not mean losing admin features or re-entering the
+    // credentials — but the next person on this device starts as themselves.
     lockAdmin();
+    forgetRoles();
     await signOut();
     navigate("/");
   };
@@ -666,6 +673,13 @@ export default function AppShell() {
                       </SelectContent>
                     </Select>
                   </>
+                ) : studiosLoading ? (
+                  // A quiet studios query must not look like "no studio yet":
+                  // the group-into-one-studio button is for a deployment that
+                  // really has none.
+                  <p className="px-1 py-1.5 text-xs text-sidebar-foreground/60">
+                    Loading studios…
+                  </p>
                 ) : (
                   <Button
                     type="button"
