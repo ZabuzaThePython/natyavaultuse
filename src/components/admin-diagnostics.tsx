@@ -24,6 +24,14 @@ const KIND_LABEL: Record<DiagnosisEntry["kind"], string> = {
   shell: "menu state",
 };
 
+/** Menu-state entries name their own event (first paint, connection…). */
+function label(entry: DiagnosisEntry): string {
+  const event = entry.data.event;
+  return entry.kind === "shell" && typeof event === "string"
+    ? event
+    : KIND_LABEL[entry.kind];
+}
+
 function clock(at: number): string {
   const time = new Date(at).toLocaleTimeString(undefined, { hour12: false });
   return `${time}.${String(at % 1000).padStart(3, "0")}`;
@@ -40,7 +48,7 @@ function DiagnosisRow({ entry }: { entry: DiagnosisEntry }) {
       <div className="flex items-center gap-2 text-[10px] tracking-wide uppercase">
         <span className="font-mono text-muted-foreground">{clock(entry.at)}</span>
         <span className="font-semibold text-foreground/70">
-          {KIND_LABEL[entry.kind]}
+          {label(entry)}
         </span>
         {entry.vanished ? (
           <span className="font-semibold text-destructive">disappeared</span>
@@ -108,8 +116,8 @@ export function AdminDiagnostics() {
             <DialogDescription>
               Every answer the deployment gave about your admin role this
               visit, and the moment the studio picker or the Classes/Studio
-              entries changed. Newest last. Nothing here leaves this device
-              until you copy it.
+              entries changed. Newest last, and kept through a reload of this
+              tab. Nothing here leaves this device until you copy it.
             </DialogDescription>
           </DialogHeader>
 

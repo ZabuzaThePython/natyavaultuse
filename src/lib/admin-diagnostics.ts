@@ -36,7 +36,53 @@ const MAX_ENTRIES = 80;
  */
 const DEDUPE_MS = 2000;
 
-let entries: DiagnosisEntry[] = [];
+/** Where the record is kept so a reload does not erase the evidence. */
+const STORE_KEY = "natyavault.diag.v1";
+/** When this page load started; earlier entries came from previous loads. */
+const SESSION_START = Date.now();
+
+function isEntry(value: unknown): value is DiagnosisEntry {
+  if (value === null || typeof value !== "object") return false;
+  const entry = value as Record<string, unknown>;
+  return (
+    typeof entry.at === "number" &&
+    (entry.kind === "hasAdminAccess" ||
+      entry.kind === "viewerRole" ||
+      entry.kind === "shell") &&
+    entry.data !== null &&
+    typeof entry.data === "object"
+  );
+}
+
+/**
+ * Reloading the page used to erase the record — and the controls going missing
+ * is exactly the moment someone reloads. The tab's own storage keeps it for as
+ * long as the tab is open, without touching any key the app uses.
+ */
+function restore(): DiagnosisEntry[] {
+  try {
+    if (typeof window === "undefined") return [];
+    const raw = window.sessionStorage.getItem(STORE_KEY);
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(isEntry).slice(-MAX_ENTRIES);
+  } catch {
+    return [];
+  }
+}
+
+function persist() {
+  try {
+    if (typeof window === "undefined") return;
+    window.sessionStorage.setItem(STORE_KEY, JSON.stringify(entries));
+  } catch {
+    // Quota or a blocked store: the record simply stays in memory.
+  }
+}
+
+let entries: DiagnosisEntry[] = restore();
+// Restored entries are history, not news: the badge starts clean.
 let unseen = 0;
 const listeners = new Set<() => void>();
 const EMPTY: DiagnosisEntry[] = [];
@@ -71,6 +117,7 @@ export function recordDiagnosis(
     const next: DiagnosisEntry = { at: now, kind, data, ...flags };
     entries = [...entries.slice(-(MAX_ENTRIES - 1)), next];
     unseen += 1;
+    persist();
     emit();
   } catch {
     // Diagnostics must never be the reason something else fails.
@@ -98,6 +145,7 @@ export function markDiagnosesSeen(): void {
 export function clearDiagnoses(): void {
   entries = [];
   unseen = 0;
+  persist();
   emit();
 }
 
@@ -169,11 +217,14 @@ function clock(at: number): string {
  * single-line-per-entry so it survives being copied from a phone.
  */
 export function formatDiagnoses(): string {
+  const earlier = entries.filter((entry) => entry.at < SESSION_START).length;
   const header = [
     "NatyaVault admin diagnostics",
     `time: ${new Date().toISOString()}`,
     `page: ${typeof location === "undefined" ? "?" : location.href}`,
     `agent: ${typeof navigator === "undefined" ? "?" : navigator.userAgent}`,
+    `this page load: ${new Date(SESSION_START).toISOString()}`,
+    `from earlier page loads in this tab: ${earlier}`,
     "",
   ].join("\n");
   if (entries.length === 0) return `${header}(nothing recorded yet)`;

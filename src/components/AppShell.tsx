@@ -67,7 +67,11 @@ import {
   useVault,
 } from "@/lib/vault";
 import { rearmInstallPrompt } from "@/lib/install";
-import { useMutation, useQuery } from "convex/react";
+import {
+  useConvexConnectionState,
+  useMutation,
+  useQuery,
+} from "convex/react";
 import { toast } from "sonner";
 import {
   CalendarCheck,
@@ -531,7 +535,22 @@ export default function AppShell() {
       storage: storageProbe(),
     });
     const change = adminViewChange(previous, current);
-    if (change === null) return;
+    if (change === null) {
+      // Nothing went missing. Note the first time the picker is known either
+      // way, so the record shows whether it ever rendered at all.
+      if (
+        previous !== null &&
+        previous.picker === null &&
+        current.picker !== null
+      ) {
+        recordDiagnosis("shell", {
+          event: current.picker ? "picker shown" : "no studio to pick",
+          ...snapshot(),
+          ...current,
+        });
+      }
+      return;
+    }
     if (change === "first") {
       recordDiagnosis("shell", {
         event: "first paint",
@@ -557,6 +576,32 @@ export default function AppShell() {
     viewerIsStaff,
     isPlatformAdmin,
   ]);
+
+  // The socket dropping while pages change is the suspected trigger, so note
+  // when it does (see lib/admin-diagnostics).
+  const connection = useConvexConnectionState();
+  const previousConnection = useRef<boolean | null>(null);
+  useEffect(() => {
+    const connected = connection.isWebSocketConnected;
+    const before = previousConnection.current;
+    previousConnection.current = connected;
+    if (before === null) {
+      recordDiagnosis("shell", {
+        event: "connection",
+        connected,
+        everConnected: connection.hasEverConnected,
+        online: navigator.onLine,
+      });
+      return;
+    }
+    if (before === connected) return;
+    recordDiagnosis("shell", {
+      event: "connection",
+      connected,
+      wasConnected: before,
+      online: navigator.onLine,
+    });
+  }, [connection.isWebSocketConnected, connection.hasEverConnected]);
 
   // What can be opened from the switcher: the whole studio for a teacher or
   // the admin, otherwise just this account's own classes.
