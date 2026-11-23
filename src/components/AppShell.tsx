@@ -503,11 +503,17 @@ export default function AppShell() {
   // time they vanish the answers that caused it can be read instead of guessed
   // at (see lib/admin-diagnostics). Nothing here changes what is rendered.
   const pickerVisible = isPlatformAdmin && studios.length > 0;
-  const previousAdminView = useRef<{ picker: boolean; nav: boolean } | null>(
-    null,
-  );
+  const previousAdminView = useRef<{
+    picker: boolean | null;
+    nav: boolean;
+  } | null>(null);
   useEffect(() => {
-    const current = { picker: pickerVisible, nav: canManageClasses };
+    // While studios are still loading the picker is legitimately absent, so it
+    // counts as "not yet known" rather than as having appeared or vanished.
+    const current: { picker: boolean | null; nav: boolean } = {
+      picker: studiosLoading ? null : pickerVisible,
+      nav: canManageClasses,
+    };
     const previous = previousAdminView.current;
     previousAdminView.current = current;
     const snapshot = () => ({
@@ -531,10 +537,10 @@ export default function AppShell() {
       return;
     }
     const vanished =
-      (previous.picker && !current.picker) ||
+      (previous.picker === true && current.picker === false) ||
       (previous.nav && !current.nav);
     const restored =
-      (!previous.picker && current.picker) ||
+      (previous.picker === false && current.picker === true) ||
       (!previous.nav && current.nav);
     if (!vanished && !restored) return;
     recordDiagnosis(
