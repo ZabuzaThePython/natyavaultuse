@@ -1,6 +1,7 @@
 import { api } from "@/convex/_generated/api";
 import { useAuth } from "@/hooks/use-auth";
 import { getLocalStore } from "@/lib/auth-storage";
+import { useViewerIsStaff } from "@/lib/classes";
 import { getLastAccount } from "@/lib/last-account";
 import { useMutation, useQuery } from "convex/react";
 import {
@@ -31,13 +32,48 @@ const GRANT_KEY = "natyavault.admin.grant.v1";
 /** How long a confirmed answer is trusted — the server's grant lasts the same. */
 const GRANT_TTL = 90 * 24 * 60 * 60 * 1000;
 
+interface AdminCreds {
+  username: string;
+  password: string;
+  /** The account that unlocked it, when the entry records one. */
+  account: string | null;
+}
+
 const listeners = new Set<() => void>();
 
+/**
+ * The unlock as this page holds it, independent of storage.
+ *
+ * Browser storage is not a reliable place for it: the vault's media shares the
+ * same quota, so once that fills every write fails silently and nothing about
+ * the unlock survives. Keeping the pair in memory means the deployment can
+ * still be told "this browser unlocked with these" for the rest of the visit
+ * even when nothing could be written.
+ */
+let memoryCreds: AdminCreds | null = null;
+
+/**
+ * Accounts the deployment said "admin" about during this page session.
+ *
+ * A subscription can go quiet — a deploy lands mid-flight, a dropped socket
+ * while the tab sleeps — and when the Admin page mounts again it starts a new
+ * one. The only other memory used to be browser storage, which is exactly what
+ * fails here; remembering the answer in memory is what stops the gate from
+ * asking for the password again every time the page is opened. Cleared on
+ * sign-out.
+ */
+const sessionConfirmed = new Set<string>();
+
+function accountKey(account: string | undefined): string {
+  return (account ?? "#session").toLowerCase();
+}
+
 function read(): boolean {
+  if (memoryCreds !== null) return true;
   try {
+    const store = getLocalStore();
     return (
-      getLocalStore().getItem(KEY) === "1" &&
-      getLocalStore().getItem(CREDS_KEY) !== null
+      store.getItem(KEY) === "1" && store.getItem(CREDS_KEY) !== null
     );
   } catch {
     return false;
@@ -61,6 +97,7 @@ export function unlockAdmin(username: string, password: string) {
   // only ever made for the same person — never a classmate who signs in next
   // on a shared studio device.
   const account = getLastAccount()?.username?.toLowerCase() ?? null;
+  memoryCreds = { username, password, account };
   try {
     getLocalStore().setItem(KEY, "1");
     getLocalStore().setItem(
@@ -81,9 +118,10 @@ export function getAdminCreds(): {
   /** The account that unlocked it, when the entry records one. */
   account: string | null;
 } | null {
+  // The copy this page holds first: it is what was typed, whether or not the
+  // browser let it be written down.
+  if (memoryCreds !== null) return memoryCreds;
   try {
-    // Read from storage rather than the in-memory flag: this is what every
-    // admin call re-verifies with, including one made after a restart.
     const raw = getLocalStore().getItem(CREDS_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as {
@@ -120,6 +158,8 @@ export function lockAdmin() {
   } catch {
     // ignore
   }
+  memoryCreds = null;
+  sessionConfirmed.clear();
   current = false;
   emit();
 }
@@ -184,6 +224,11 @@ function writeGrant(account: string | undefined) {
 export function useAdminAccess(): { isAdmin: boolean; loading: boolean } {
   const stored = useStoredUnlock();
   const { user } = useAuth();
+  // The deployment's own answer about who this account is. This is the one
+  // signal that never touches this browser's storage: if the signed-in account
+  // is the admin — or holds an unexpired admin grant on the deployment — the
+  // Admin area stays open on every device, even after a cleared browser.
+  const { isPlatformAdmin } = useViewerIsStaff();
 
   // Who this answer belongs to: the sign-in name when the session is loaded,
   // otherwise the account this browser last used — never nobody, so a waking
@@ -208,19 +253,32 @@ export function useAdminAccess(): { isAdmin: boolean; loading: boolean } {
 
   const confirmed = serverAdmin === true;
   const cached = useMemo(() => readGrant(account), [account]);
-  const isAdmin = stored || confirmed || cached;
+  // A yes already heard in this visit: the query can go quiet, and the Admin
+  // page mounts a fresh subscription every time it is opened. Remembering the
+  // answer here — not in browser storage, which is what fills up — is what
+  // stops the gate asking for the password again on the way back.
+  const sticky = sessionConfirmed.has(accountKey(account));
+  const isAdmin =
+    stored || confirmed || cached || isPlatformAdmin || sticky;
 
   useEffect(() => {
-    if (serverAdmin !== undefined || retry >= 5 || stored) return;
+    if (!confirmed) return;
+    sessionConfirmed.add(accountKey(account));
+  }, [confirmed, account]);
+
+  useEffect(() => {
+    if (serverAdmin !== undefined || retry >= 5 || isAdmin) return;
     const timer = setTimeout(() => setRetry((tries) => tries + 1), 1500);
     return () => clearTimeout(timer);
-  }, [serverAdmin, retry, stored]);
+  }, [serverAdmin, retry, isAdmin]);
 
   // Only a yes is remembered. A "no" can mean "not signed in yet", and must
-  // never wipe a grant this account already holds.
+  // never wipe a grant this account already holds. The operator's own answer
+  // counts too, so a slow or silent query after a reload cannot close a door
+  // the deployment has already opened.
   useEffect(() => {
-    if (confirmed) writeGrant(account);
-  }, [confirmed, account]);
+    if (confirmed || isPlatformAdmin) writeGrant(account);
+  }, [confirmed, isPlatformAdmin, account]);
 
   // The browser still holds the admin credentials, but the deployment no
   // longer remembers the grant (it lapsed, or the call that granted it was

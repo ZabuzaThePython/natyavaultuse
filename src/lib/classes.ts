@@ -13,6 +13,7 @@
  */
 import { api } from "@/convex/_generated/api";
 import { useAuth } from "@/hooks/use-auth";
+import { getLocalStore } from "@/lib/auth-storage";
 import type { AttendanceEntry } from "@/lib/vault";
 import { useQuery } from "convex/react";
 import { getLastAccount } from "@/lib/last-account";
@@ -91,6 +92,21 @@ export interface ViewerRole {
 /** Last role the deployment confirmed for an account, kept per account. */
 const ROLE_CACHE_KEY = "natyavault.roles.v1";
 
+/**
+ * The role the deployment confirmed during this page session, per account.
+ *
+ * Storage is the fallback, never the only memory: the vault's media shares that
+ * quota, so a full browser refuses these writes without saying so, and the
+ * cached role used to vanish with the storage — taking the admin's studio
+ * picker, Classes entry and Admin badge with it across the next answer gap.
+ * This holds the last confirmed answer for as long as the tab is open.
+ */
+const sessionRoles = new Map<string, CachedRole>();
+
+function accountKey(account: string | undefined): string {
+  return (account ?? "#session").toLowerCase();
+}
+
 /** What the deployment last said about an account's place in the app. */
 export interface CachedRole {
   staff: boolean;
@@ -101,7 +117,7 @@ export interface CachedRole {
 function readCachedRole(account: string | undefined): CachedRole | null {
   if (!account) return null;
   try {
-    const raw = localStorage.getItem(ROLE_CACHE_KEY);
+    const raw = getLocalStore().getItem(ROLE_CACHE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Record<string, unknown>;
     const entry = parsed[account];
@@ -123,11 +139,11 @@ function readCachedRole(account: string | undefined): CachedRole | null {
 function writeCachedRole(account: string | undefined, role: CachedRole) {
   if (!account) return;
   try {
-    const raw = localStorage.getItem(ROLE_CACHE_KEY);
+    const raw = getLocalStore().getItem(ROLE_CACHE_KEY);
     const parsed = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
     const next = parsed && typeof parsed === "object" ? parsed : {};
     next[account] = { staff: role.staff, admin: role.admin };
-    localStorage.setItem(ROLE_CACHE_KEY, JSON.stringify(next));
+    getLocalStore().setItem(ROLE_CACHE_KEY, JSON.stringify(next));
   } catch {
     // Storage refused the write — the role simply won't be remembered.
   }
@@ -190,12 +206,18 @@ export function useViewerIsStaff(): ViewerRole {
   // had to sign in again to get them back.
   const confirmedStaff = data?.signedIn === true ? data.isStaff : null;
   const confirmedAdmin = data?.signedIn === true ? data.isPlatformAdmin : null;
-  const cached = useMemo(() => readCachedRole(account), [account]);
+  const key = accountKey(account);
+  // This visit's confirmed answer first, whatever was written down next.
+  const remembered = sessionRoles.get(key) ?? null;
+  const written = useMemo(() => readCachedRole(account), [account]);
+  const cached = remembered ?? written;
 
   useEffect(() => {
     if (confirmedStaff === null || confirmedAdmin === null) return;
-    writeCachedRole(account, { staff: confirmedStaff, admin: confirmedAdmin });
-  }, [confirmedStaff, confirmedAdmin, account]);
+    const role: CachedRole = { staff: confirmedStaff, admin: confirmedAdmin };
+    sessionRoles.set(key, role);
+    writeCachedRole(account, role);
+  }, [confirmedStaff, confirmedAdmin, account, key]);
 
   return {
     isStaff: confirmedStaff ?? cached?.staff ?? false,

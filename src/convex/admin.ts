@@ -113,7 +113,7 @@ async function signedInAsAdmin(
 const ADMIN_UNLOCK_TTL = 90 * 24 * 60 * 60 * 1000;
 
 /** An unexpired admin grant for this account, if there is one. */
-async function hasAdminUnlock(
+export async function hasAdminUnlock(
   ctx: QueryCtx | MutationCtx,
   userId: Id<"users">,
 ): Promise<boolean> {
