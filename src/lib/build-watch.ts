@@ -66,18 +66,22 @@ export function useBuildWatcher(): void {
     };
 
     const timer = window.setInterval(() => void check(), CHECK_EVERY);
-    const onForeground = () => {
+    // Coming back to the tab is the moment to look. They are separate handlers
+    // on purpose: `visibilitychange` fires for a tab being hidden too, while a
+    // window that is focused but not yet painted still deserves a check.
+    const onVisible = () => {
       if (document.visibilityState === "visible") void check();
     };
-    document.addEventListener("visibilitychange", onForeground);
-    window.addEventListener("focus", onForeground);
+    const onFocus = () => void check();
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onFocus);
     void check();
 
     return () => {
       stopped = true;
       window.clearInterval(timer);
-      document.removeEventListener("visibilitychange", onForeground);
-      window.removeEventListener("focus", onForeground);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onFocus);
     };
   }, []);
 }
