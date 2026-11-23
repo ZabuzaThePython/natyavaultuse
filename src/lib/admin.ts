@@ -1,5 +1,6 @@
 import { api } from "@/convex/_generated/api";
 import { useAuth } from "@/hooks/use-auth";
+import { recordDiagnosis } from "@/lib/admin-diagnostics";
 import { getLocalStore } from "@/lib/auth-storage";
 import { useViewerIsStaff } from "@/lib/classes";
 import { getLastAccount } from "@/lib/last-account";
@@ -307,6 +308,40 @@ export function useAdminAccess(): { isAdmin: boolean; loading: boolean } {
       },
     );
   }, [stored, serverAdmin, account, claim, user?.email, user?.name]);
+
+  // What the deployment actually answered, kept so a disappearance can be read
+  // back later instead of guessed at (see lib/admin-diagnostics). This only
+  // records; it changes no answer.
+  const holdsCredentials = creds !== null;
+  const diagnosis = useMemo(
+    () => ({
+      account: account ?? null,
+      answer: serverAdmin === undefined ? "pending" : serverAdmin,
+      stored,
+      confirmed,
+      cached,
+      sticky,
+      operator,
+      platformAdmin: isPlatformAdmin,
+      holdsCredentials,
+      isAdmin,
+    }),
+    [
+      account,
+      serverAdmin,
+      stored,
+      confirmed,
+      cached,
+      sticky,
+      operator,
+      isPlatformAdmin,
+      holdsCredentials,
+      isAdmin,
+    ],
+  );
+  useEffect(() => {
+    recordDiagnosis("hasAdminAccess", diagnosis);
+  }, [diagnosis]);
 
   return {
     isAdmin,

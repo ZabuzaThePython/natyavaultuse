@@ -1,4 +1,5 @@
 import { AddToHomeScreenDialog } from "@/components/AddToHomeScreenDialog";
+import { AdminDiagnostics } from "@/components/admin-diagnostics";
 import { FullNamePrompt } from "@/components/full-name-prompt";
 import { StudioPrompt } from "@/components/studio-prompt";
 import { NotificationsPrompt } from "@/components/notifications-prompt";
@@ -33,6 +34,7 @@ import { api } from "@/convex/_generated/api";
 import { useAuth } from "@/hooks/use-auth";
 import { useIsAdmin, lockAdmin } from "@/lib/admin";
 import { useBuildWatcher } from "@/lib/build-watch";
+import { recordDiagnosis, storageProbe } from "@/lib/admin-diagnostics";
 import { forgetRoles } from "@/lib/role-memory";
 import {
   markLocalPracticeImported,
@@ -497,6 +499,62 @@ export default function AppShell() {
     ? [...NAV_ITEMS, CLASSES_ITEM, STUDIO_ITEM]
     : NAV_ITEMS;
 
+  // A record of the admin controls appearing and disappearing, so the next
+  // time they vanish the answers that caused it can be read instead of guessed
+  // at (see lib/admin-diagnostics). Nothing here changes what is rendered.
+  const pickerVisible = isPlatformAdmin && studios.length > 0;
+  const previousAdminView = useRef<{ picker: boolean; nav: boolean } | null>(
+    null,
+  );
+  useEffect(() => {
+    const current = { picker: pickerVisible, nav: canManageClasses };
+    const previous = previousAdminView.current;
+    previousAdminView.current = current;
+    const snapshot = () => ({
+      path: location.pathname,
+      online: navigator.onLine,
+      account: user?.email ?? null,
+      studios: studios.length,
+      studiosLoading,
+      roleLoading,
+      isAdmin,
+      isStaff: viewerIsStaff,
+      isPlatformAdmin,
+      storage: storageProbe(),
+    });
+    if (previous === null) {
+      recordDiagnosis("shell", {
+        event: "first paint",
+        ...snapshot(),
+        ...current,
+      });
+      return;
+    }
+    const vanished =
+      (previous.picker && !current.picker) ||
+      (previous.nav && !current.nav);
+    const restored =
+      (!previous.picker && current.picker) ||
+      (!previous.nav && current.nav);
+    if (!vanished && !restored) return;
+    recordDiagnosis(
+      "shell",
+      { ...snapshot(), before: previous, after: current },
+      vanished ? { vanished: true } : { restored: true },
+    );
+  }, [
+    pickerVisible,
+    canManageClasses,
+    location.pathname,
+    user?.email,
+    studios.length,
+    studiosLoading,
+    roleLoading,
+    isAdmin,
+    viewerIsStaff,
+    isPlatformAdmin,
+  ]);
+
   // What can be opened from the switcher: the whole studio for a teacher or
   // the admin, otherwise just this account's own classes.
   const switchableClasses = canSeeAll ? studioClasses : myClasses;
@@ -732,6 +790,9 @@ export default function AppShell() {
             >
               muthabenish@gmail.com
             </a>
+            {/* What the deployment answered about admin access, for when the
+                studio picker or the Classes/Studio entries go missing. */}
+            <AdminDiagnostics />
           </div>
           <div className="flex items-center gap-2.5">
             <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-gold/20 text-xs font-semibold text-gold ring-1 ring-white/10">
