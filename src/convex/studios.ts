@@ -235,6 +235,26 @@ export async function studioMemberIds(
 }
 
 /**
+ * Accounts that belong to no studio at all — a sign-up that never joined one,
+ * or whose class predates studios.
+ *
+ * They are nobody's studio list, so the admin's account list has to include
+ * them itself: scoped to one studio, it used to drop them (five accounts
+ * became four the moment the shell picked a studio), leaving no view in which
+ * they could be managed.
+ */
+export async function studioLessUserIds(
+  ctx: QueryCtx | MutationCtx,
+): Promise<Set<Id<"users">>> {
+  const members = await ctx.db.query("studioMembers").collect();
+  const inAnyStudio = new Set(members.map((member) => member.userId));
+  const users = await ctx.db.query("users").collect();
+  return new Set(
+    users.filter((user) => !inAnyStudio.has(user._id)).map((user) => user._id),
+  );
+}
+
+/**
  * A studio's folder in the archive Drive: `nv` + its name with everything but
  * letters and digits dropped, so "Shubha Studio of Arts" is
  * `nvshubhastudioofarts`. Fixed at creation (see the schema).
