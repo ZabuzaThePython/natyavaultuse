@@ -83,6 +83,20 @@ function formatBytes(bytes: number): string {
 /** One row from the admin account list. */
 type AdminAccount = FunctionReturnType<typeof api.admin.listAccounts>[number];
 
+/**
+ * The last account list this page got, kept for as long as the tab is open.
+ *
+ * Opening Messages and coming back mounts this page again, which starts a new
+ * subscription; until that answers the card said "Loading accounts…", and a
+ * subscription that came back empty left it saying "No accounts to show."
+ * while every account was still there. The last answer stays on screen instead,
+ * and a fresh one — even an empty one — always replaces it. It is keyed by the
+ * studio and the credentials it was asked with, so one studio's people are
+ * never shown as another's, and signing out clears it (new credentials, new
+ * key).
+ */
+let lastAccountList: { key: string; accounts: AdminAccount[] } | null = null;
+
 export default function Admin() {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
@@ -105,11 +119,23 @@ export default function Admin() {
   // empty pair is sent when this browser no longer stores them — that is what
   // used to blank this page out whenever localStorage was lost.
   const adminCreds = getAdminCreds() ?? { username: "", password: "" };
+  // Which studio and credentials this answer belongs to, so it is only ever
+  // reused for the same question.
+  const accountsKey = `${activeStudioId ?? "all"}:${adminCreds.username}`;
   const accounts = useQuery(api.admin.listAccounts, {
     adminUsername: adminCreds.username,
     adminPassword: adminCreds.password,
     ...(activeStudioId ? { studioId: activeStudioId } : {}),
   });
+  useEffect(() => {
+    if (accounts !== undefined) lastAccountList = { key: accountsKey, accounts };
+  }, [accounts, accountsKey]);
+  // The answer on its way, or the last one for this same studio.
+  const listed =
+    accounts ??
+    (lastAccountList !== null && lastAccountList.key === accountsKey
+      ? lastAccountList.accounts
+      : undefined);
   const deleteAccount = useMutation(api.admin.deleteAccount);
   // The practice log lives on the deployment (convex/practice.ts), so this
   // page reviews the class's sessions rather than the browser's old copy.
@@ -124,16 +150,16 @@ export default function Admin() {
   // Narrow the account list to teachers or students. Depends on whether they
   // can sign in as staff, not on a label the browser chose.
   const visibleAccounts =
-    accounts === undefined
+    listed === undefined
       ? undefined
-      : accounts.filter((account) =>
+      : listed.filter((account) =>
           accountFilter === "all"
             ? true
             : accountFilter === "teachers"
               ? account.isTeacher
               : !account.isTeacher,
         );
-  const teacherCount = accounts?.filter((a) => a.isTeacher).length ?? 0;
+  const teacherCount = listed?.filter((a) => a.isTeacher).length ?? 0;
 
   // Password-reset dialog state. The admin enters the new password here; the
   // account's current password is never shown.
@@ -530,12 +556,12 @@ export default function Admin() {
           <div className="flex flex-wrap gap-1.5">
             {(
               [
-                { key: "all", label: "All", count: accounts?.length ?? 0 },
+                { key: "all", label: "All", count: listed?.length ?? 0 },
                 { key: "teachers", label: "Teachers", count: teacherCount },
                 {
                   key: "students",
                   label: "Students",
-                  count: (accounts?.length ?? 0) - teacherCount,
+                  count: (listed?.length ?? 0) - teacherCount,
                 },
               ] as const
             ).map(({ key, label, count }) => (
