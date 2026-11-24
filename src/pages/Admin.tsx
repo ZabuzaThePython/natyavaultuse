@@ -501,7 +501,7 @@ export default function Admin() {
       </Card>
 
       {/* -------------------------------------------------------- accounts */}
-      <Card id="admin-accounts" className="gap-4">
+      <Card className="gap-4">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
             <Users className="size-4" />
