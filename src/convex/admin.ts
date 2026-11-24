@@ -429,26 +429,39 @@ export const listAccounts = query({
     // The studio picked in the shell. Without it (a deployment that has no
     // studios yet) the list is deployment-wide, as it always was.
     studioId: v.optional(v.id("studios")),
+    // The operator asked for every studio. Accounts in another studio are then
+    // listed too, instead of being hidden by the picker in the shell.
+    allStudios: v.optional(v.boolean()),
   },
   handler: async (
     ctx,
-    { adminUsername, adminPassword, studioId },
+    { adminUsername, adminPassword, studioId, allStudios },
   ) => {
     if (!(await adminAuthorized(ctx, adminUsername, adminPassword))) return [];
+    // The studio this list is narrowed to — the picked one by default, or none
+    // at all once "All studios" is asked for.
+    const scope = allStudios === true ? undefined : studioId;
     // One studio's people only: its members and class owners, plus the
-    // students who joined its classes. Another studio's accounts stay out.
+    // students who joined its classes. Another studio's accounts stay out —
+    // unless "All studios" is on, in which case nothing is left out.
     const allowed =
-      studioId === undefined ? null : await studioMemberIds(ctx, studioId);
+      scope === undefined ? null : await studioMemberIds(ctx, scope);
     const allUsers = await ctx.db.query("users").collect();
+    // The operator's own account is listed in every studio: it can open this
+    // page from any of them, so it must never be the one account missing.
+    const isOperator = (user: (typeof allUsers)[number]) =>
+      user.email === ADMIN_USERNAME || user.role === "admin";
     const users =
       allowed === null
         ? allUsers
-        : allUsers.filter((user) => allowed.has(user._id));
+        : allUsers.filter(
+            (user) => allowed.has(user._id) || isOperator(user),
+          );
 
     // One pass over the class tables instead of two reads per account, so the
     // list can show who is a teacher and which class each account belongs to.
     const classes = (await ctx.db.query("classes").collect()).filter(
-      (row) => studioId === undefined || row.studioId === studioId,
+      (row) => scope === undefined || row.studioId === scope,
     );
     const codes = new Set(classes.map((row) => row.code));
     const members = (await ctx.db.query("classMembers").collect()).filter(
@@ -468,6 +481,23 @@ export const listAccounts = query({
           name: member.className,
         });
       }
+    }
+
+    // Which studio each account belongs to, for the list that shows every
+    // studio: the class name alone does not say it.
+    const studioNames = new Map<string, string>(
+      (await ctx.db.query("studios").collect()).map((studio) => [
+        studio._id,
+        studio.name,
+      ]),
+    );
+    const studiosByUser = new Map<string, string[]>();
+    for (const member of await ctx.db.query("studioMembers").collect()) {
+      const name = studioNames.get(member.studioId);
+      if (name === undefined) continue;
+      const list = studiosByUser.get(member.userId) ?? [];
+      if (!list.includes(name)) list.push(name);
+      studiosByUser.set(member.userId, list);
     }
 
     const listed = await Promise.all(
@@ -496,6 +526,9 @@ export const listAccounts = query({
           passwordSet: passwordAccount?.secret !== undefined,
           isAdmin,
           isTeacher,
+          // The studios this account belongs to, empty for the operator and
+          // for an account that has not joined one.
+          studios: studiosByUser.get(user._id) ?? [],
           classRole: user.classRole ?? null,
           classes: [...owned, ...(joined ? [joined] : [])],
         };

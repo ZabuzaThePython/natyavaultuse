@@ -58,6 +58,7 @@ import {
 import { useAction, useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import {
+  Building2,
   Clapperboard,
   Globe,
   HardDrive,
@@ -120,13 +121,20 @@ export default function Admin() {
   // empty pair is sent when this browser no longer stores them — that is what
   // used to blank this page out whenever localStorage was lost.
   const adminCreds = getAdminCreds() ?? { username: "", password: "" };
+  // Whether the list is narrowed to the studio on screen (the default) or
+  // spans every studio. Hiding another studio's accounts left them with no
+  // view in which to manage them, so the switch is one click, never a filter
+  // that drops them for good.
+  const [allStudios, setAllStudios] = useState(false);
+  const studioScope = allStudios ? undefined : (activeStudioId ?? undefined);
   // Which studio and credentials this answer belongs to, so it is only ever
   // reused for the same question.
-  const accountsKey = `${activeStudioId ?? "all"}:${adminCreds.username}`;
+  const accountsKey = `${studioScope ?? "all"}:${adminCreds.username}`;
   const accounts = useQuery(api.admin.listAccounts, {
     adminUsername: adminCreds.username,
     adminPassword: adminCreds.password,
-    ...(activeStudioId ? { studioId: activeStudioId } : {}),
+    ...(studioScope ? { studioId: studioScope } : {}),
+    ...(allStudios ? { allStudios: true } : {}),
   });
   useEffect(() => {
     if (accounts !== undefined) lastAccountList = { key: accountsKey, accounts };
@@ -589,11 +597,36 @@ export default function Admin() {
           </CardTitle>
           <CardDescription>
             Every sign-in account in the studio you are viewing, teachers
-            included. Filter to the teacher accounts, then reset any password
-            to set a new value — current passwords are never shown.
+            included. Switch to all studios to manage an account that belongs
+            to a different one, then filter to the teacher accounts and reset
+            any password — current passwords are never shown.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
+          {/* Which studios the list covers. Narrowed to the one on screen by
+              default, so one studio's people are never listed as another's. */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Button
+              type="button"
+              size="sm"
+              variant={allStudios ? "outline" : "secondary"}
+              onClick={() => setAllStudios(false)}
+            >
+              This studio
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={allStudios ? "secondary" : "outline"}
+              onClick={() => setAllStudios(true)}
+            >
+              All studios
+              <span className="tabular-nums text-xs opacity-70">
+                {allStudios ? (listed?.length ?? 0) : ""}
+              </span>
+            </Button>
+          </div>
+
           {/* Teacher / student filter — teachers are staff accounts the admin
               manages most often. */}
           <div className="flex flex-wrap gap-1.5">
@@ -627,9 +660,9 @@ export default function Admin() {
             <EmptyLine
               message={
                 accountFilter === "teachers"
-                  ? "No teacher accounts in this studio."
+                  ? `No teacher accounts ${allStudios ? "yet" : "in this studio"}.`
                   : accountFilter === "students"
-                    ? "No student accounts in this studio."
+                    ? `No student accounts ${allStudios ? "yet" : "in this studio"}.`
                     : "No accounts to show."
               }
             />
@@ -679,6 +712,20 @@ export default function Admin() {
                       ? "Teacher"
                       : "Student"}
                 </Badge>
+                {allStudios && (
+                  <Badge
+                    variant="outline"
+                    className="gap-1 text-muted-foreground"
+                    title="The studio this account belongs to"
+                  >
+                    <Building2 className="size-3 shrink-0" />
+                    {account.studios.length > 0
+                      ? account.studios.join(", ")
+                      : account.isAdmin
+                        ? "Operator"
+                        : "No studio"}
+                  </Badge>
+                )}
                 <Badge
                   variant="outline"
                   className="gap-1 text-muted-foreground"
