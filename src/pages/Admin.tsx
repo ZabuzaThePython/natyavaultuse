@@ -188,6 +188,21 @@ export default function Admin() {
               : !account.isTeacher,
         );
   const teacherCount = listed?.filter((a) => a.isTeacher).length ?? 0;
+  // Whether the card that holds the list actually made it onto the page, and
+  // how tall it is. "The card is gone" and "the card is here but not on screen"
+  // need different answers, and this tells them apart (see lib/admin-diagnostics).
+  useEffect(() => {
+    const el = document.getElementById("admin-accounts");
+    const box = el?.getBoundingClientRect();
+    recordDiagnosis("shell", {
+      event: "accounts card",
+      path: window.location.pathname,
+      mounted: el !== null,
+      height: box ? Math.round(box.height) : null,
+      display: el ? getComputedStyle(el).display : null,
+      rows: visibleAccounts?.length ?? null,
+    });
+  }, [visibleAccounts]);
 
   // Password-reset dialog state. The admin enters the new password here; the
   // account's current password is never shown.
@@ -566,7 +581,7 @@ export default function Admin() {
       </Card>
 
       {/* -------------------------------------------------------- accounts */}
-      <Card className="gap-4">
+      <Card id="admin-accounts" className="gap-4">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
             <Users className="size-4" />
