@@ -4,6 +4,7 @@ import { isStaleChunkError, reloadForUpdate } from "@/lib/chunk-reload";
 import { RequireAuth } from "@/components/RequireAuth";
 import { RequireAdmin } from "@/components/RequireAdmin";
 import { ConnectionGuard } from "@/components/ConnectionGuard";
+import { useIsAdmin } from "@/lib/admin";
 import { VlyToolbar } from "../vly-toolbar-readonly.tsx";
 import { ConvexAuthProvider } from "@convex-dev/auth/react";
 import { getAuthStorage } from "@/lib/auth-storage";
@@ -27,6 +28,18 @@ const MediaVault = lazy(() => import("./pages/MediaVault.tsx"));
 const Admin = lazy(() => import("./pages/Admin.tsx"));
 const Messages = lazy(() => import("./pages/Messages.tsx"));
 const NotFound = lazy(() => import("./pages/NotFound.tsx"));
+
+/**
+ * The dashboard for an admin is the admin page itself.
+ *
+ * The accounts, the feature switches and the Danger zone are what the operator
+ * opens NatyaVault for, and the separate Admin page was only ever one click
+ * away from the same thing — a click that landed on a page whose scroll the
+ * browser had moved. Everyone else keeps the class dashboard.
+ */
+function DashboardRoute() {
+  return useIsAdmin() ? <Admin /> : <Dashboard />;
+}
 
 // Simple loading fallback for route transitions
 function RouteLoading() {
@@ -204,7 +217,7 @@ createRoot(document.getElementById("root")!).render(
                       </RequireAuth>
                     }
                   >
-                    <Route index element={<Dashboard />} />
+                    <Route index element={<DashboardRoute />} />
                     <Route path="practice" element={<PracticeLog />} />
                     <Route path="attendance" element={<Attendance />} />
                     <Route path="classes" element={<Classes />} />
