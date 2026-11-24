@@ -1,5 +1,4 @@
 import { AddToHomeScreenDialog } from "@/components/AddToHomeScreenDialog";
-import { AdminDiagnostics } from "@/components/admin-diagnostics";
 import { FullNamePrompt } from "@/components/full-name-prompt";
 import { StudioPrompt } from "@/components/studio-prompt";
 import { NotificationsPrompt } from "@/components/notifications-prompt";
@@ -928,9 +927,6 @@ export default function AppShell() {
             >
               muthabenish@gmail.com
             </a>
-            {/* What the deployment answered about admin access, for when the
-                studio picker or the Classes/Studio entries go missing. */}
-            <AdminDiagnostics />
           </div>
           <div className="flex items-center gap-2.5">
             <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-gold/20 text-xs font-semibold text-gold ring-1 ring-white/10">
