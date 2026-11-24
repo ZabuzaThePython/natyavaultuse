@@ -71,7 +71,7 @@ expires. Blue is the app and its database, purple is auth, yellow is an outside
 service, grey is a browser or edge runtime.
 
 <!-- BEGIN GENERATED COUNTS -->
-The deployment has **29 tables** — 23 defined in
+The deployment has **30 tables** — 24 defined in
 `src/convex/schema.ts` (including `users`) and 6 more that
 Convex Auth adds.
 
@@ -99,9 +99,9 @@ Every function the deployment exposes, and every HTTP route, read out of
 `src/convex/`.
 
 <!-- BEGIN GENERATED BACKEND -->
-**87 public functions**, 33
-internal helpers — 29 queries, 41 mutations and
-17 actions across 19 modules in `src/convex/`.
+**96 public functions**, 38
+internal helpers — 33 queries, 46 mutations and
+17 actions across 20 modules in `src/convex/`.
 
 | module | queries | mutations | actions | internal |
 | --- | --- | --- | --- | --- |
@@ -112,16 +112,17 @@ internal helpers — 29 queries, 41 mutations and
 | `chats.ts` | `people`, `myChats`, `unreadTotal`, `thread`, `details` | `ensureClassChat`, `ensureAllClassChats`, `createChat`, `addMembers`, `removeMember`, `rename`, `remove`, `send`, `markRead`, `setPinned`, `removeMessage`, `uploadUrl` | — | — |
 | `classes.ts` | `validateCode`, `myClasses`, `allClasses`, `viewerRole`, `classSheet` | `createClass`, `deleteClass`, `joinClass` | — | `joinOnSignUp` |
 | `drive.ts` | `status`, `files` | — | `authUrl`, `exchange`, `disconnect`, `startUpload`, `finishUpload`, `cancelUpload`, `fileUrl`, `disconnectVault`, `remove`, `browse`, `listSubtree` | `getTokens`, `saveTokens`, `createState`, `consumeState`, `peekState`, `getVaultTokens`, `saveVaultTokens`, `clearVaultTokens`, `viewerManagesClasses`, `forgetTokens`, `clearTokens`, `listFiles`, `recordFile`, `forgetFile`, `createGrant`, `grantFor`, `tokenForGrant`, `removeForOwner` |
+| `fees.ts` | `classFees` | `setFee` | — | `queueFeeReminders` |
 | `gifs.ts` | — | — | `search` | — |
 | `migrations.ts` | — | `studiosBackfill` | — | — |
 | `names.ts` | `needsFullName` | `setFullName` | — | — |
 | `passwords.ts` | — | — | — | `record` |
 | `practice.ts` | `classPractice` | `addEntry`, `removeEntry`, `importLocal` | — | — |
-| `push.ts` | `publicKey`, `devices` | `subscribe`, `unsubscribe` | — | `recipients`, `removeDead` |
-| `pushSend.ts` | — | — | — | `send` |
-| `studios.ts` | `myStudio`, `listStudios` | `createStudio`, `joinStudio`, `renameStudio` | — | `setFolderId` |
+| `push.ts` | `publicKey`, `devices` | `subscribe`, `unsubscribe` | — | `recipients`, `subscriptionsFor`, `removeDead` |
+| `pushSend.ts` | — | — | — | `send`, `sendToUsers` |
+| `studios.ts` | `myStudio`, `listStudios`, `validateCode`, `studioOverview` | `createStudio`, `joinStudio`, `renameStudio`, `addTeacher`, `removeTeacher`, `setStudioSuspended`, `setJoinOpen` | — | `studioOnSignUp`, `folderForClass`, `setFolderId` |
 | `tour.ts` | `pending` | `finish` | — | — |
-| `usernames.ts` | `isTaken` | — | — | — |
+| `usernames.ts` | `isTaken`, `resolve` | — | — | — |
 | `users.ts` | `currentUser` | — | — | — |
 | `vault.ts` | `classMedia` | `addShared`, `renameShared` | `removeShared` | `removable`, `dropRow`, `byDriveFile`, `memberFor` |
 
@@ -149,15 +150,21 @@ page.
 | `/` | `Landing` | public |
 | `/auth` | `AuthPage` | public |
 | `/dashboard` | `AppShell` | signed in |
-| `/dashboard` | `Dashboard` | signed in |
+| `/dashboard` | `Dashboard`, or `Admin` for an admin | signed in |
 | `/dashboard/practice` | `PracticeLog` | signed in |
 | `/dashboard/attendance` | `Attendance` | signed in |
 | `/dashboard/classes` | `Classes` | signed in |
+| `/dashboard/studio` | `Studio` | signed in |
 | `/dashboard/vault` | `MediaVault` | signed in |
 | `/dashboard/messages` | `Messages` | signed in |
 | `/dashboard/admin` | `Admin` | admin |
 | `/*` | `NotFound` | public |
 <!-- END GENERATED PAGES -->
+
+`/dashboard` renders the admin page for anyone with admin access: the accounts,
+the feature switches and the danger zone are what an operator opens the app
+for. Students and teachers get the class dashboard instead, and
+`/dashboard/admin` keeps the same page working for older links.
 
 ## Flows worth knowing
 

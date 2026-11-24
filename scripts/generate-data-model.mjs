@@ -461,6 +461,14 @@ async function readFrontendRoutes() {
   return routes;
 }
 
+/**
+ * Route elements that pick a page at render time, so the table can name what
+ * the visitor actually gets instead of the wrapper's name.
+ */
+const PAGE_EXPANSIONS = {
+  DashboardRoute: "\`Dashboard\`, or \`Admin\` for an admin",
+};
+
 /** The generated "Pages" body of docs/architecture.md. */
 function renderPages(routes) {
   return [
@@ -470,7 +478,8 @@ function renderPages(routes) {
     "| path | page | who gets in |",
     "| --- | --- | --- |",
     ...routes.map(
-      (route) => `| \`${route.path}\` | \`${route.page}\` | ${route.guard} |`,
+      (route) =>
+        `| \`${route.path}\` | ${PAGE_EXPANSIONS[route.page] ?? `\`${route.page}\``} | ${route.guard} |`,
     ),
   ].join("\n");
 }

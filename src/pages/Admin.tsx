@@ -45,7 +45,6 @@ import { useAuth } from "@/hooks/use-auth";
 import { getAdminCreds } from "@/lib/admin";
 import { recordDiagnosis } from "@/lib/admin-diagnostics";
 import { useActiveStudio } from "@/lib/studios";
-import { STORAGE_PLANS } from "@/lib/plans";
 import { useClassPractice } from "@/lib/practice";
 import {
   clearContent,
@@ -532,60 +531,17 @@ export default function Admin() {
 
       {/* ------------------------------------------------------ public launch */}
       <Card className="gap-4">
-        <CardHeader>
+        <CardHeader className="flex flex-row items-center justify-between gap-3">
           <CardTitle className="flex items-center gap-2 text-base">
             <Globe className="size-4" />
             Public launch
           </CardTitle>
-          <CardDescription>
-            Open NatyaVault to other dance studios. While it is off, the app is
-            a private vault for your own class and the landing page says so.
-          </CardDescription>
+          <Switch
+            checked={vault.publicMode}
+            onCheckedChange={(checked) => void handleTogglePublicMode(checked)}
+            aria-label="Open NatyaVault to other dance studios"
+          />
         </CardHeader>
-        <CardContent className="flex flex-col gap-3">
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/70 px-3 py-3">
-            <div className="min-w-0">
-              <p className="text-sm font-medium">Open to the public</p>
-              <p className="text-xs text-muted-foreground">
-                {vault.publicMode
-                  ? "Other dance studios can sign up and pick a storage plan."
-                  : "Invitation only — the landing page advertises no plans."}
-              </p>
-            </div>
-            <label className="flex cursor-pointer items-center gap-2">
-              <Switch
-                checked={vault.publicMode}
-                onCheckedChange={(checked) =>
-                  void handleTogglePublicMode(checked)
-                }
-                aria-label="Open NatyaVault to other dance studios"
-              />
-              <span className="text-sm font-medium">
-                {vault.publicMode ? "Live" : "Disabled"}
-              </span>
-            </label>
-          </div>
-
-          <div className="grid gap-2 sm:grid-cols-3">
-            {STORAGE_PLANS.map((plan) => (
-              <div
-                key={plan.name}
-                className="rounded-lg border border-border/70 px-3 py-2.5"
-              >
-                <p className="text-sm font-medium">{plan.name}</p>
-                <p className="text-xs text-muted-foreground">
-                  {plan.storage} · {plan.price} {plan.cadence}
-                </p>
-              </div>
-            ))}
-          </div>
-
-          <p className="text-xs text-muted-foreground">
-            These are the plans the public page lists. Card payments are not
-            connected yet, so studios start on the free tier while billing is
-            still to be wired up.
-          </p>
-        </CardContent>
       </Card>
 
       {/* -------------------------------------------------------- accounts */}

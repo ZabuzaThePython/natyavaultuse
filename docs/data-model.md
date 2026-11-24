@@ -64,7 +64,7 @@ Every table the deployment defines, with its fields and references, generated
 from the schema. The models are split by domain so each one stays readable.
 
 <!-- BEGIN GENERATED DATA MODEL -->
-**29 tables** — 23 defined in `src/convex/schema.ts` (including
+**30 tables** — 24 defined in `src/convex/schema.ts` (including
 `users`) plus 6 from Convex Auth's `authTables`.
 
 They are split into domain models so each diagram stays readable. Every
@@ -279,7 +279,7 @@ erDiagram
 
 ### Attendance and practice
 
-The two per-class records students and teachers both read: marks per class day, and practice sessions. References outside this model: `users`.
+The per-class records students and teachers both read: marks per class day, practice sessions, and the monthly fee ticks. References outside this model: `users`.
 
 <img src="diagrams/learning.png" alt="Entity relationship diagram: attendance and practice" />
 
@@ -311,6 +311,16 @@ erDiagram
     string item
     number createdAt
     string clientId "optional"
+  }
+  feePayments {
+    id _id PK
+    number _creationTime
+    string code
+    string studentName
+    string month
+    bool paid
+    string markedBy
+    number updatedAt
   }
 ```
 
@@ -478,6 +488,7 @@ erDiagram
     string p256dh
     string auth
     string userAgent "optional"
+    string timeZone "optional"
     number createdAt
   }
   chats ||--o{ chatMembers : "chatId"
@@ -511,6 +522,7 @@ erDiagram
 | `classes` | `by_code(code)`, `by_owner(ownerId)`, `by_studio(studioId)` |
 | `attendanceMarks` | `by_code(code)`, `by_code_and_date(code, date)` |
 | `practiceEntries` | `by_code(code)`, `by_code_and_date(code, date)`, `by_client(clientId)` |
+| `feePayments` | `by_code(code)`, `by_code_and_month(code, month)` |
 | `vaultMedia` | `by_code(code)`, `by_drive_file(driveFileId)`, `by_uploader(uploaderId)` |
 | `classStudents` | `by_code(code)` |
 | `classMembers` | `by_user(userId)`, `by_code(code)` |

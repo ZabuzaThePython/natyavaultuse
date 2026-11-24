@@ -330,7 +330,7 @@
     <div class="head">
       <div>
         <h2>Attendance and practice</h2>
-        <p class="caption">The two per-class records students and teachers both read: marks per class day, and practice sessions. References outside this model: `users`.</p>
+        <p class="caption">The per-class records students and teachers both read: marks per class day, practice sessions, and the monthly fee ticks. References outside this model: `users`.</p>
       </div>
       <span class="actions">
         <button class="download" type="button" data-format="png">Download PNG</button>
@@ -359,6 +359,16 @@
     string item
     number createdAt
     string clientId "optional"
+  }
+  feePayments {
+    id _id PK
+    number _creationTime
+    string code
+    string studentName
+    string month
+    bool paid
+    string markedBy
+    number updatedAt
   }</pre>
   </section>
 
@@ -520,6 +530,7 @@
     string p256dh
     string auth
     string userAgent "optional"
+    string timeZone "optional"
     number createdAt
   }
   chats ||--o{ chatMembers : "chatId"
