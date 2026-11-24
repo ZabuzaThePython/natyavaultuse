@@ -306,8 +306,6 @@ function CloseMobileNavOnNavigate() {
   return null;
 }
 
-// A deliberately loud mobile menu button — the old icon-only trigger was easy
-// to miss, so this is a filled, labelled pill with a comfortable tap target.
 /**
  * Where each dashboard page was left, keyed by its path.
  *
@@ -341,52 +339,51 @@ function RememberScrollPosition() {
     const save = () => {
       if (!restoring) pageScroll.set(path.current, window.scrollY);
     };
-
-    if (firstVisit.current) {
-      // The page this visit opened on is wherever the browser put it; a reload
-      // restores its own offset, and that is the one to keep.
-      firstVisit.current = false;
-      window.addEventListener("scroll", save, { passive: true });
-      return () => window.removeEventListener("scroll", save);
-    }
-
-    // Read before anything can write, so the offset this page was left at is
-    // the one that is put back.
-    const target = pageScroll.get(pathname) ?? 0;
-    // A page fills in after its first paint — its queries answer a moment
-    // later — so an offset set once is clamped to the short page and lost. It
-    // is re-applied until it sticks (the page is tall enough to hold it), and
-    // any scroll of your own takes over immediately.
-    restoring = true;
     window.addEventListener("scroll", save, { passive: true });
-    let taken = false;
-    const stop = () => {
-      taken = true;
-      restoring = false;
-    };
-    window.addEventListener("wheel", stop, { passive: true });
-    window.addEventListener("touchstart", stop, { passive: true });
-    window.addEventListener("keydown", stop);
+
+    // The page this visit opened on is wherever the browser put it; a reload
+    // restores its own offset, and that is the one to keep.
+    const opened = firstVisit.current;
+    firstVisit.current = false;
+    // Read before anything can write, so the offset this page was left at is
+    // the one that is put back. A page not seen yet starts at its top, which is
+    // where a menu click should land.
+    const target = pageScroll.get(pathname) ?? 0;
 
     let raf = 0;
     let tries = 0;
+    // A page fills in after its first paint — its queries answer a moment
+    // later — so an offset set once is clamped to the short page and lost. It
+    // is re-applied until it sticks, and any scroll of your own takes over.
     const putBack = () => {
-      if (taken) return;
-      if (Math.abs(window.scrollY - target) > 2) window.scrollTo(0, target);
-      // Reached it, or the page never grew enough in ~3 seconds.
-      tries += 1;
-      if (Math.abs(window.scrollY - target) > 2 && tries < 180) {
-        raf = requestAnimationFrame(putBack);
+      if (Math.abs(window.scrollY - target) <= 2) {
+        restoring = false;
         return;
       }
-      restoring = false;
+      window.scrollTo(0, target);
+      tries += 1;
+      // Given up on after ~3 seconds: the page never grew enough to hold it.
+      if (tries >= 180) {
+        restoring = false;
+        return;
+      }
+      raf = requestAnimationFrame(putBack);
     };
-    const timers = [0, 60, 200, 450].map((wait) =>
-      window.setTimeout(putBack, wait),
-    );
+    const stop = () => {
+      // A scroll of your own takes over from the restore.
+      restoring = false;
+      cancelAnimationFrame(raf);
+    };
+
+    if (!opened) {
+      restoring = true;
+      window.addEventListener("wheel", stop, { passive: true });
+      window.addEventListener("touchstart", stop, { passive: true });
+      window.addEventListener("keydown", stop);
+      raf = requestAnimationFrame(putBack);
+    }
 
     return () => {
-      timers.forEach((timer) => window.clearTimeout(timer));
       cancelAnimationFrame(raf);
       window.removeEventListener("scroll", save);
       window.removeEventListener("wheel", stop);
@@ -398,6 +395,8 @@ function RememberScrollPosition() {
   return null;
 }
 
+// A deliberately loud mobile menu button — the old icon-only trigger was easy
+// to miss, so this is a filled, labelled pill with a comfortable tap target.
 function MobileMenuButton() {
   const { openMobile, setOpenMobile } = useSidebar();
   return (
