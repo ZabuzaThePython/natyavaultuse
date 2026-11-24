@@ -385,7 +385,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
       }
       if (isAdminSignIn) {
         unlockAdmin(username, password);
-        navigate("/dashboard/admin");
+        navigate("/dashboard");
         return;
       }
       navigate(redirect);

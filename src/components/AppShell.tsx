@@ -987,10 +987,10 @@ export default function AppShell() {
             <MessagesShortcut count={unreadMessages} />
             {isAdmin ? (
               <NavLink
-                to="/dashboard/admin"
+                to="/dashboard"
                 data-tour="account"
                 className="flex items-center gap-2 rounded-full border border-border/70 bg-card py-1 pr-3 pl-1 shadow-xs transition-colors hover:border-primary/40 focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
-                aria-label="Open admin area"
+                aria-label="Open the admin dashboard"
               >
                 <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary text-[10px] font-semibold text-primary-foreground">
                   {initials}
