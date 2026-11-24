@@ -43,6 +43,7 @@ import { api } from "@/convex/_generated/api";
 import { firstName } from "@/lib/display-name";
 import { useAuth } from "@/hooks/use-auth";
 import { getAdminCreds } from "@/lib/admin";
+import { recordDiagnosis } from "@/lib/admin-diagnostics";
 import { useActiveStudio } from "@/lib/studios";
 import { STORAGE_PLANS } from "@/lib/plans";
 import { useClassPractice } from "@/lib/practice";
@@ -140,6 +141,33 @@ export default function Admin() {
   // The practice log lives on the deployment (convex/practice.ts), so this
   // page reviews the class's sessions rather than the browser's old copy.
   const practice = useClassPractice(vault.classCode);
+  // What this page actually got, kept so a vanished list can be read instead of
+  // guessed at (see lib/admin-diagnostics): the count, whether this browser
+  // still holds the admin credentials the query is authorised with, which
+  // studio it was asked about, and whether the practice log had a class to read.
+  const accountsCount = accounts?.length ?? null;
+  const listedDiagnosis = useMemo(
+    () => ({
+      event: "accounts list",
+      accounts: accountsCount,
+      credsHeld: adminCreds.username !== "",
+      studio: activeStudioId ?? null,
+      classCode: vault.classCode,
+      practice: practice.entries.length,
+      practiceOk: practice.ok,
+    }),
+    [
+      accountsCount,
+      adminCreds.username,
+      activeStudioId,
+      vault.classCode,
+      practice.entries.length,
+      practice.ok,
+    ],
+  );
+  useEffect(() => {
+    recordDiagnosis("shell", listedDiagnosis);
+  }, [listedDiagnosis]);
   const removeEntry = useMutation(api.practice.removeEntry);
   const clearClassAttendance = useMutation(api.attendance.clearClassAttendance);
   const resetAccountPassword = useAction(api.admin.resetPassword);
