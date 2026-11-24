@@ -10,7 +10,8 @@ import {
   useViewerIsStaff,
 } from "@/lib/classes";
 import { useClassPractice } from "@/lib/practice";
-import { useStudioName } from "@/lib/studios";
+import { useActiveStudio, useStudioName } from "@/lib/studios";
+import { getAdminCreds } from "@/lib/admin";
 import {
   attendanceFor,
   attendanceSheetNames,
@@ -31,6 +32,7 @@ import {
   NotebookPen,
   Trophy,
   Upload,
+  Users,
   Video,
 } from "lucide-react";
 import { useQuery } from "convex/react";
@@ -46,7 +48,27 @@ export default function Dashboard() {
   const practiceEnabled = vault.practiceLogEnabled;
   // The account's real role, from the deployment — a student signing in on a
   // browser a teacher used must not inherit the teacher's view.
-  const { isStaff: isTeacher, isLoading: roleLoading } = useViewerIsStaff();
+  const {
+    isStaff: isTeacher,
+    isPlatformAdmin,
+    isLoading: roleLoading,
+  } = useViewerIsStaff();
+  // The platform admin's accounts, on the page they land on: the same list the
+  // Admin area manages. Leaving the Admin page used to leave no accounts list
+  // anywhere they looked (the URL goes back to /dashboard), so it lives here
+  // too; resetting and deleting stay in the Admin area, one click away.
+  const { studioId: activeStudioId } = useActiveStudio();
+  const adminCreds = getAdminCreds() ?? { username: "", password: "" };
+  const accounts = useQuery(
+    api.admin.listAccounts,
+    isPlatformAdmin
+      ? {
+          adminUsername: adminCreds.username,
+          adminPassword: adminCreds.password,
+          ...(activeStudioId ? { studioId: activeStudioId } : {}),
+        }
+      : "skip",
+  );
 
   // The vault shelf is shared with the class (see convex/vault.ts), so recent
   // media here includes what dancemates uploaded, not only this browser.
@@ -287,6 +309,77 @@ export default function Dashboard() {
           </Card>
         </Link>
       </section>
+
+      {/* The studio's accounts, for the operator. The Admin area is where they
+          are managed; this is where they are seen. */}
+      {isPlatformAdmin ? (
+        <section className="flex flex-col gap-3">
+          <div className="flex flex-wrap items-end justify-between gap-2">
+            <div>
+              <h2 className="flex items-center gap-2 text-base font-semibold tracking-tight">
+                <Users className="size-4 text-gold-foreground" />
+                Accounts
+              </h2>
+              <p className="text-xs text-muted-foreground">
+                Everyone who can sign in to the studio you are viewing.
+              </p>
+            </div>
+            <Button type="button" variant="outline" size="sm" asChild>
+              <Link to="/dashboard/admin">Manage accounts</Link>
+            </Button>
+          </div>
+          <Card className="gap-0 py-0">
+            <CardContent className="divide-y divide-border/70 p-0">
+              {accounts === undefined ? (
+                <p className="px-4 py-5 text-center text-xs text-muted-foreground">
+                  Loading accounts…
+                </p>
+              ) : accounts.length === 0 ? (
+                <p className="px-4 py-5 text-center text-xs text-muted-foreground">
+                  No accounts to show.
+                </p>
+              ) : (
+                accounts.map((account) => (
+                  <div
+                    key={account.id}
+                    className="flex flex-wrap items-center gap-3 px-4 py-2.5"
+                  >
+                    <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[11px] font-semibold text-primary">
+                      {account.username.slice(0, 2).toUpperCase()}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium">
+                        {account.username}
+                      </p>
+                      {account.fullName &&
+                        account.fullName !== account.username && (
+                          <p className="truncate text-xs text-muted-foreground">
+                            {account.fullName}
+                          </p>
+                        )}
+                    </div>
+                    <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+                      {account.isAdmin
+                        ? "Admin"
+                        : account.isTeacher
+                          ? "Teacher"
+                          : "Student"}
+                    </span>
+                    {account.inStudio === false && (
+                      <span
+                        className="rounded-full border border-dashed px-2 py-0.5 text-[11px] text-muted-foreground"
+                        title="This account has not joined a studio"
+                      >
+                        No studio
+                      </span>
+                    )}
+                  </div>
+                ))
+              )}
+            </CardContent>
+          </Card>
+        </section>
+      ) : null}
 
       {/* Monthly fees: the teacher's ticks, or the student's own calendar. */}
       <FeesPanel names={rosterNames} ready={sheetReady} />
