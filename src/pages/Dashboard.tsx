@@ -10,7 +10,7 @@ import {
   useViewerIsStaff,
 } from "@/lib/classes";
 import { useClassPractice } from "@/lib/practice";
-import { useStudioName } from "@/lib/studios";
+import { useActiveStudio, useStudioName } from "@/lib/studios";
 import { getAdminCreds } from "@/lib/admin";
 import {
   attendanceFor,
@@ -58,14 +58,18 @@ export default function Dashboard() {
   // anywhere they looked (the URL goes back to /dashboard), so it lives here
   // too; resetting and deleting stay in the Admin area, one click away.
   //
-  // Deliberately deployment-wide, with no studio filter: this is the operator's
-  // view of every account. Scoped to the studio picked in the shell, the list
-  // changed — and looked empty — whenever that picker moved.
+  // Scoped to the studio picked in the shell, exactly like the Admin area, so
+  // one studio's people are never listed as another's.
+  const { studioId: activeStudioId } = useActiveStudio();
   const adminCreds = getAdminCreds() ?? { username: "", password: "" };
   const accounts = useQuery(
     api.admin.listAccounts,
     isPlatformAdmin
-      ? { adminUsername: adminCreds.username, adminPassword: adminCreds.password }
+      ? {
+          adminUsername: adminCreds.username,
+          adminPassword: adminCreds.password,
+          ...(activeStudioId ? { studioId: activeStudioId } : {}),
+        }
       : "skip",
   );
 
@@ -320,7 +324,8 @@ export default function Dashboard() {
                 Accounts
               </h2>
               <p className="text-xs text-muted-foreground">
-                Everyone who can sign in to NatyaVault, in every studio.
+                Everyone who can sign in to {studioName ?? "this studio"},
+                teachers included.
               </p>
             </div>
             <Button type="button" variant="outline" size="sm" asChild>

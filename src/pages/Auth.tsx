@@ -191,7 +191,17 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
       );
       return;
     }
-    if (!USERNAME_PATTERN.test(username)) {
+    // Signing in accepts a username or the display name shown on class lists,
+    // so only account creation is held to the username format.
+    if (!username) {
+      setError(
+        mode === "signUp"
+          ? "Choose a username — 3–32 characters: letters, numbers, dots, dashes, underscores or @."
+          : "Enter your username or your name.",
+      );
+      return;
+    }
+    if (mode === "signUp" && !USERNAME_PATTERN.test(username)) {
       setError(
         "Your username must be 3–32 characters: letters, numbers, dots, dashes, underscores or @.",
       );
@@ -300,26 +310,53 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
         }
       }
 
-      await signIn("password", {
-        flow: mode,
-        username,
-        password,
-        role,
-        classCode: normalizedCode,
-        // Sign-up only — signing in never rewrites the stored name.
-        ...(mode === "signUp" ? { fullName } : {}),
-        // The studio a teacher's account belongs to, recorded server-side by
-        // the password provider (see convex/studios.ts → studioOnSignUp).
-        ...(needsStudio
-          ? studioMode === "join"
-            ? { studioCode: normalizedStudioCode }
-            : { studioName: studioName.trim() }
-          : {}),
-      });
+      // The password provider keys accounts by username, so a typed display
+      // name is turned into the usernames it could be first (names are not
+      // unique) and each is tried with the password that was typed.
+      let handles = [username];
+      if (mode === "signIn" && !isAdminSignIn) {
+        try {
+          const candidates = await convex.query(api.usernames.resolve, {
+            name: username,
+          });
+          if (candidates.length > 0) handles = candidates;
+        } catch (caught) {
+          console.error("Could not resolve that name:", caught);
+        }
+      }
+
+      let failure: unknown = null;
+      let signedInAs = "";
+      for (const handle of handles) {
+        try {
+          await signIn("password", {
+            flow: mode,
+            username: handle,
+            password,
+            role,
+            classCode: normalizedCode,
+            // Sign-up only — signing in never rewrites the stored name.
+            ...(mode === "signUp" ? { fullName } : {}),
+            // The studio a teacher's account belongs to, recorded server-side by
+            // the password provider (see convex/studios.ts → studioOnSignUp).
+            ...(needsStudio
+              ? studioMode === "join"
+                ? { studioCode: normalizedStudioCode }
+                : { studioName: studioName.trim() }
+              : {}),
+          });
+          failure = null;
+          signedInAs = handle;
+          break;
+        } catch (caught) {
+          failure = caught;
+        }
+      }
+      if (failure !== null) throw failure;
       // Remember who signed in here: opening NatyaVault again should come
       // back to this account, not to a blank "who are you?" (see
       // src/lib/last-account.ts).
-      rememberAccount(username);
+      rememberAccount(signedInAs || username);
       // The studio itself is placed server-side from the code or name above
       // (convex/auth/password.ts schedules studios.studioOnSignUp). It is not
       // repeated from here: a client call racing that one could found a second
@@ -406,7 +443,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                   ? openToPublic
                     ? "Open to dance studios — your full name, a username, a password, and you're in"
                     : "Enter your full name, choose a username, and set a password — students also need their class code"
-                  : "Welcome back — enter your name and password to step in"}
+                  : "Welcome back — your username or your name, plus your password"}
               </CardDescription>
               {mode === "signIn" && lastAccount && (
                 <p className="pt-1 text-xs text-muted-foreground">
@@ -640,7 +677,9 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                       value={usernameValue}
                       onChange={(event) => setUsernameValue(event.target.value)}
                       placeholder={
-                        mode === "signUp" ? "Choose a username" : "Your username"
+                        mode === "signUp"
+                          ? "Choose a username"
+                          : "Username or full name"
                       }
                       type="text"
                       autoComplete="username"
