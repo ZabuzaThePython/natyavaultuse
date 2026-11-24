@@ -33,12 +33,6 @@ import { api } from "@/convex/_generated/api";
 import { useAuth } from "@/hooks/use-auth";
 import { useIsAdmin, lockAdmin } from "@/lib/admin";
 import { useBuildWatcher } from "@/lib/build-watch";
-import {
-  adminViewChange,
-  recordDiagnosis,
-  storageProbe,
-  type AdminViewState,
-} from "@/lib/admin-diagnostics";
 import { forgetRoles } from "@/lib/role-memory";
 import {
   markLocalPracticeImported,
@@ -67,7 +61,6 @@ import {
 } from "@/lib/vault";
 import { rearmInstallPrompt } from "@/lib/install";
 import {
-  useConvexConnectionState,
   useMutation,
   useQuery,
 } from "convex/react";
@@ -595,101 +588,6 @@ export default function AppShell() {
   const navItems = canManageClasses
     ? [...NAV_ITEMS, CLASSES_ITEM, STUDIO_ITEM]
     : NAV_ITEMS;
-
-  // A record of the admin controls appearing and disappearing, so the next
-  // time they vanish the answers that caused it can be read instead of guessed
-  // at (see lib/admin-diagnostics). Nothing here changes what is rendered.
-  const pickerVisible = isPlatformAdmin && studios.length > 0;
-  const previousAdminView = useRef<AdminViewState | null>(null);
-  useEffect(() => {
-    // While studios are still loading the picker is legitimately absent, so it
-    // counts as "not yet known" rather than as having appeared or vanished.
-    const current: AdminViewState = {
-      picker: studiosLoading ? null : pickerVisible,
-      nav: canManageClasses,
-    };
-    const previous = previousAdminView.current;
-    previousAdminView.current = current;
-    const snapshot = () => ({
-      path: location.pathname,
-      online: navigator.onLine,
-      account: user?.email ?? null,
-      studios: studios.length,
-      studiosLoading,
-      roleLoading,
-      isAdmin,
-      isStaff: viewerIsStaff,
-      isPlatformAdmin,
-      storage: storageProbe(),
-    });
-    const change = adminViewChange(previous, current);
-    if (change === null) {
-      // Nothing went missing. Note the first time the picker is known either
-      // way, so the record shows whether it ever rendered at all.
-      if (
-        previous !== null &&
-        previous.picker === null &&
-        current.picker !== null
-      ) {
-        recordDiagnosis("shell", {
-          event: current.picker ? "picker shown" : "no studio to pick",
-          ...snapshot(),
-          ...current,
-        });
-      }
-      return;
-    }
-    if (change === "first") {
-      recordDiagnosis("shell", {
-        event: "first paint",
-        ...snapshot(),
-        ...current,
-      });
-      return;
-    }
-    recordDiagnosis(
-      "shell",
-      { ...snapshot(), before: previous, after: current },
-      change === "vanished" ? { vanished: true } : { restored: true },
-    );
-  }, [
-    pickerVisible,
-    canManageClasses,
-    location.pathname,
-    user?.email,
-    studios.length,
-    studiosLoading,
-    roleLoading,
-    isAdmin,
-    viewerIsStaff,
-    isPlatformAdmin,
-  ]);
-
-  // The socket dropping while pages change is the suspected trigger, so note
-  // when it does (see lib/admin-diagnostics).
-  const connection = useConvexConnectionState();
-  const previousConnection = useRef<boolean | null>(null);
-  useEffect(() => {
-    const connected = connection.isWebSocketConnected;
-    const before = previousConnection.current;
-    previousConnection.current = connected;
-    if (before === null) {
-      recordDiagnosis("shell", {
-        event: "connection",
-        connected,
-        everConnected: connection.hasEverConnected,
-        online: navigator.onLine,
-      });
-      return;
-    }
-    if (before === connected) return;
-    recordDiagnosis("shell", {
-      event: "connection",
-      connected,
-      wasConnected: before,
-      online: navigator.onLine,
-    });
-  }, [connection.isWebSocketConnected, connection.hasEverConnected]);
 
   // What can be opened from the switcher: the whole studio for a teacher or
   // the admin, otherwise just this account's own classes.

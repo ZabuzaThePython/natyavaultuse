@@ -13,7 +13,6 @@
  */
 import { api } from "@/convex/_generated/api";
 import { useAuth } from "@/hooks/use-auth";
-import { recordDiagnosis } from "@/lib/admin-diagnostics";
 import {
   browserRoleStores,
   isOperatorAccount,
@@ -196,48 +195,8 @@ export function useViewerIsStaff(): ViewerRole {
     writeStoredRole(key, role, browserRoleStores());
   }, [confirmedStaff, confirmedAdmin, key, written]);
 
-  // What the deployment actually answered, kept so a disappearance can be read
-  // back later instead of guessed at (see lib/admin-diagnostics). This only
-  // records; it changes no answer.
-  const answerSignedIn = data === undefined ? null : data.signedIn;
-  const answerIsStaff = data === undefined ? null : data.isStaff;
-  const answerPlatformAdmin = data === undefined ? null : data.isPlatformAdmin;
   const shownIsStaff = operator || merged?.staff === true;
   const shownPlatformAdmin = operator || merged?.admin === true;
-  const rememberedAdmin = remembered?.admin ?? null;
-  const diagnosis = useMemo(
-    () => ({
-      account: account ?? null,
-      answer:
-        answerSignedIn === null
-          ? "pending"
-          : {
-              signedIn: answerSignedIn,
-              isStaff: answerIsStaff,
-              isPlatformAdmin: answerPlatformAdmin,
-            },
-      confirmedAdmin,
-      rememberedAdmin,
-      operator,
-      retry,
-      shown: { isStaff: shownIsStaff, isPlatformAdmin: shownPlatformAdmin },
-    }),
-    [
-      account,
-      answerSignedIn,
-      answerIsStaff,
-      answerPlatformAdmin,
-      confirmedAdmin,
-      rememberedAdmin,
-      operator,
-      retry,
-      shownIsStaff,
-      shownPlatformAdmin,
-    ],
-  );
-  useEffect(() => {
-    recordDiagnosis("viewerRole", diagnosis);
-  }, [diagnosis]);
 
   return {
     isStaff: shownIsStaff,

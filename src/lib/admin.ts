@@ -1,6 +1,5 @@
 import { api } from "@/convex/_generated/api";
 import { useAuth } from "@/hooks/use-auth";
-import { recordDiagnosis } from "@/lib/admin-diagnostics";
 import { getLocalStore } from "@/lib/auth-storage";
 import { useViewerIsStaff } from "@/lib/classes";
 import { getLastAccount } from "@/lib/last-account";
@@ -110,12 +109,6 @@ export function unlockAdmin(username: string, password: string) {
     // Storage unavailable — the flag just won't persist past this page.
   }
   current = true;
-  // Named in the diagnostics so a later "stored: true" is never a mystery.
-  recordDiagnosis("hasAdminAccess", {
-    event: "unlocked",
-    account,
-    by: "admin credentials accepted",
-  });
   emit();
 }
 
@@ -169,13 +162,6 @@ export function lockAdmin() {
   memoryCreds = null;
   sessionConfirmed.clear();
   current = false;
-  // The only thing that removes these keys is a sign-out, so say it here
-  // rather than leaving a later "stored: false" to be guessed at.
-  recordDiagnosis("hasAdminAccess", {
-    event: "locked",
-    reason: "sign-out clears this browser's admin unlock",
-    grantKept: readGrant(getLastAccount()?.username?.toLowerCase()),
-  });
   emit();
 }
 
@@ -321,53 +307,6 @@ export function useAdminAccess(): { isAdmin: boolean; loading: boolean } {
       },
     );
   }, [stored, serverAdmin, account, claim, user?.email, user?.name]);
-
-  // What the deployment actually answered, kept so a disappearance can be read
-  // back later instead of guessed at (see lib/admin-diagnostics). This only
-  // records; it changes no answer.
-  const holdsCredentials = creds !== null;
-  const diagnosis = useMemo(
-    () => ({
-      account: account ?? null,
-      answer: serverAdmin === undefined ? "pending" : serverAdmin,
-      stored,
-      confirmed,
-      cached,
-      sticky,
-      operator,
-      platformAdmin: isPlatformAdmin,
-      holdsCredentials,
-      // What is actually written down right now, so "the module thinks it is
-      // locked" can be told apart from "the browser lost the keys".
-      keys: (() => {
-        try {
-          const store = getLocalStore();
-          return {
-            flag: store.getItem(KEY) === "1",
-            creds: store.getItem(CREDS_KEY) !== null,
-          };
-        } catch {
-          return "unreadable";
-        }
-      })(),
-      isAdmin,
-    }),
-    [
-      account,
-      serverAdmin,
-      stored,
-      confirmed,
-      cached,
-      sticky,
-      operator,
-      isPlatformAdmin,
-      holdsCredentials,
-      isAdmin,
-    ],
-  );
-  useEffect(() => {
-    recordDiagnosis("hasAdminAccess", diagnosis);
-  }, [diagnosis]);
 
   return {
     isAdmin,

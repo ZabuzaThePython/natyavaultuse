@@ -43,7 +43,6 @@ import { api } from "@/convex/_generated/api";
 import { firstName } from "@/lib/display-name";
 import { useAuth } from "@/hooks/use-auth";
 import { getAdminCreds } from "@/lib/admin";
-import { recordDiagnosis } from "@/lib/admin-diagnostics";
 import { useActiveStudio } from "@/lib/studios";
 import { useClassPractice } from "@/lib/practice";
 import {
@@ -148,33 +147,6 @@ export default function Admin() {
   // The practice log lives on the deployment (convex/practice.ts), so this
   // page reviews the class's sessions rather than the browser's old copy.
   const practice = useClassPractice(vault.classCode);
-  // What this page actually got, kept so a vanished list can be read instead of
-  // guessed at (see lib/admin-diagnostics): the count, whether this browser
-  // still holds the admin credentials the query is authorised with, which
-  // studio it was asked about, and whether the practice log had a class to read.
-  const accountsCount = accounts?.length ?? null;
-  const listedDiagnosis = useMemo(
-    () => ({
-      event: "accounts list",
-      accounts: accountsCount,
-      credsHeld: adminCreds.username !== "",
-      studio: activeStudioId ?? null,
-      classCode: vault.classCode,
-      practice: practice.entries.length,
-      practiceOk: practice.ok,
-    }),
-    [
-      accountsCount,
-      adminCreds.username,
-      activeStudioId,
-      vault.classCode,
-      practice.entries.length,
-      practice.ok,
-    ],
-  );
-  useEffect(() => {
-    recordDiagnosis("shell", listedDiagnosis);
-  }, [listedDiagnosis]);
   const removeEntry = useMutation(api.practice.removeEntry);
   const clearClassAttendance = useMutation(api.attendance.clearClassAttendance);
   const resetAccountPassword = useAction(api.admin.resetPassword);
@@ -195,22 +167,6 @@ export default function Admin() {
               : !account.isTeacher,
         );
   const teacherCount = listed?.filter((a) => a.isTeacher).length ?? 0;
-  // Whether the card that holds the list actually made it onto the page, and
-  // how tall it is. "The card is gone" and "the card is here but not on screen"
-  // need different answers, and this tells them apart (see lib/admin-diagnostics).
-  useEffect(() => {
-    const el = document.getElementById("admin-accounts");
-    const box = el?.getBoundingClientRect();
-    recordDiagnosis("shell", {
-      event: "accounts card",
-      path: window.location.pathname,
-      mounted: el !== null,
-      height: box ? Math.round(box.height) : null,
-      display: el ? getComputedStyle(el).display : null,
-      rows: visibleAccounts?.length ?? null,
-    });
-  }, [visibleAccounts]);
-
   // Password-reset dialog state. The admin enters the new password here; the
   // account's current password is never shown.
   const [resetAccount, setResetAccount] = useState<AdminAccount | null>(null);
