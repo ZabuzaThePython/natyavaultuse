@@ -113,16 +113,19 @@ export function AddToHomeScreenDialog({
   // screen: a fresh account gets the steps, and a browser already running the
   // installed app never does. `open` is derived rather than synced, so a card
   // that takes the screen later simply holds this one back until it is done.
-  const [showing, setShowing] = useState(false);
-  const open = showing && !suppressed;
-  const setOpen = (next: boolean) => setShowing(next);
+  // Read during render rather than synced by an effect: the flag is written by
+  // the walkthrough the moment it ends, and a prop-keyed effect is exactly
+  // what used to make that arrive one render late. `hidden` is only the
+  // in-session "closed" latch; the stored flag stays the source of truth.
+  const [hidden, setHidden] = useState(false);
+  const open =
+    !hidden &&
+    ready &&
+    !suppressed &&
+    !isStandalone() &&
+    isInstallPromptPending();
+  const setOpen = (next: boolean) => setHidden(!next);
   const platform: Platform = detectPlatform();
-
-  useEffect(() => {
-    if (!ready || suppressed) return;
-    if (isStandalone()) return;
-    if (isInstallPromptPending()) setShowing(true);
-  }, [ready, suppressed]);
 
   // Installed mid-session? Then the steps are history — forget them.
   useEffect(

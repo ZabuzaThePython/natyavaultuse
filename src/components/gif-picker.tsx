@@ -93,18 +93,22 @@ export function GifPickerDialog({
   }, [open, query, searchGifs, attempt]);
 
   // Closing the dialog clears the preview, so it always opens on the results.
-  useEffect(() => {
-    if (open) return;
-    setPicked(null);
-    setPreviewFailed(false);
-  }, [open]);
+  // Done in the close path rather than in an effect on `open`, which would be
+  // a render the dialog does not need.
+  const handleOpenChange = (next: boolean) => {
+    if (!next) {
+      setPicked(null);
+      setPreviewFailed(false);
+    }
+    onOpenChange(next);
+  };
 
   const gifs = result?.gifs ?? [];
   const needsKey = result !== null && !result.configured;
   const failed = result !== null && result.ok === false && result.configured;
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       {/* A wide dialog is what makes the grid readable: at the old 576px
           width every tile was about 150px across, which is not enough to
           recognise a GIF before sending it. */}
