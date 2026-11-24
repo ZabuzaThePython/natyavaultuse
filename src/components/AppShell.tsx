@@ -87,7 +87,7 @@ import {
   Sun,
 } from "lucide-react";
 import { useTheme } from "next-themes";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router";
 
 const NAV_ITEMS = [
@@ -308,6 +308,96 @@ function CloseMobileNavOnNavigate() {
 
 // A deliberately loud mobile menu button — the old icon-only trigger was easy
 // to miss, so this is a filled, labelled pill with a comfortable tap target.
+/**
+ * Where each dashboard page was left, keyed by its path.
+ *
+ * The window keeps its scroll offset when you move between pages, but the page
+ * you move to is usually shorter, so the browser pulls the window up to the end
+ * of it — and coming back then puts you where that pull left you, not where you
+ * were. On the Admin page that is 400–700px above the accounts list and the
+ * Danger zone at its bottom, which is why those sections looked gone after a
+ * visit to the dashboard: still on the page, just below the window. The offset
+ * is kept for as long as the tab is open, so a page comes back where it was.
+ */
+const pageScroll = new Map<string, number>();
+
+function RememberScrollPosition() {
+  const { pathname } = useLocation();
+  const path = useRef(pathname);
+  const firstVisit = useRef(true);
+  // Named before the page is laid out, so the pull the browser makes when the
+  // next page is shorter is saved against the page being opened — not against
+  // the page being left, which would forget where that one was.
+  useLayoutEffect(() => {
+    path.current = pathname;
+  }, [pathname]);
+
+  useEffect(() => {
+    // A restore is putting the window back where the page was left; the
+    // positions it passes through on the way are not that place.
+    let restoring = false;
+    // Kept up to date while the page is open, so the offset is right even when
+    // nothing else gets a chance to run before the route changes.
+    const save = () => {
+      if (!restoring) pageScroll.set(path.current, window.scrollY);
+    };
+
+    if (firstVisit.current) {
+      // The page this visit opened on is wherever the browser put it; a reload
+      // restores its own offset, and that is the one to keep.
+      firstVisit.current = false;
+      window.addEventListener("scroll", save, { passive: true });
+      return () => window.removeEventListener("scroll", save);
+    }
+
+    // Read before anything can write, so the offset this page was left at is
+    // the one that is put back.
+    const target = pageScroll.get(pathname) ?? 0;
+    // A page fills in after its first paint — its queries answer a moment
+    // later — so an offset set once is clamped to the short page and lost. It
+    // is re-applied until it sticks (the page is tall enough to hold it), and
+    // any scroll of your own takes over immediately.
+    restoring = true;
+    window.addEventListener("scroll", save, { passive: true });
+    let taken = false;
+    const stop = () => {
+      taken = true;
+      restoring = false;
+    };
+    window.addEventListener("wheel", stop, { passive: true });
+    window.addEventListener("touchstart", stop, { passive: true });
+    window.addEventListener("keydown", stop);
+
+    let raf = 0;
+    let tries = 0;
+    const putBack = () => {
+      if (taken) return;
+      if (Math.abs(window.scrollY - target) > 2) window.scrollTo(0, target);
+      // Reached it, or the page never grew enough in ~3 seconds.
+      tries += 1;
+      if (Math.abs(window.scrollY - target) > 2 && tries < 180) {
+        raf = requestAnimationFrame(putBack);
+        return;
+      }
+      restoring = false;
+    };
+    const timers = [0, 60, 200, 450].map((wait) =>
+      window.setTimeout(putBack, wait),
+    );
+
+    return () => {
+      timers.forEach((timer) => window.clearTimeout(timer));
+      cancelAnimationFrame(raf);
+      window.removeEventListener("scroll", save);
+      window.removeEventListener("wheel", stop);
+      window.removeEventListener("touchstart", stop);
+      window.removeEventListener("keydown", stop);
+    };
+  }, [pathname]);
+
+  return null;
+}
+
 function MobileMenuButton() {
   const { openMobile, setOpenMobile } = useSidebar();
   return (
@@ -728,6 +818,7 @@ export default function AppShell() {
   return (
     <SidebarProvider>
       <CloseMobileNavOnNavigate />
+      <RememberScrollPosition />
       <Sidebar collapsible="offcanvas">
         <SidebarHeader className="gap-3 px-3 pt-4 pb-3">
           <div className="flex items-center gap-2.5 px-1">
