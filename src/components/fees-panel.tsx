@@ -5,12 +5,12 @@ import { api } from "@/convex/_generated/api";
 import { useAuth } from "@/hooks/use-auth";
 import { useViewerIsStaff } from "@/lib/classes";
 import { shortNames } from "@/lib/display-name";
-import { monthKey, useClassFees } from "@/lib/fees";
+import { monthKey, useClassFees, type FeeMark } from "@/lib/fees";
 import { useVault } from "@/lib/vault";
 import { cn } from "@/lib/utils";
 import { Check, ChevronLeft, ChevronRight, Lock, Wallet } from "lucide-react";
 import { useMutation } from "convex/react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 const MONTHS = [
@@ -33,6 +33,16 @@ const cellKey = (name: string, month: string) =>
   `${name.trim().toLowerCase()}|${month}`;
 
 /**
+ * The last fee board this tab saw, per class.
+ *
+ * Coming back to the dashboard starts the query again, and while it was
+ * unanswered the table was replaced by "Loading the class list…" — which is
+ * what the students going missing looked like. The last board stays up, and a
+ * fresh answer always replaces it.
+ */
+const lastFeeBoards = new Map<string, FeeMark[]>();
+
+/**
  * Fees, on the dashboard — a year at a glance.
  *
  * Months run across the top, students down the side, and each cell is one
@@ -53,6 +63,14 @@ export function FeesPanel({
   const vault = useVault();
   const { isStaff: isTeacher, isLoading: roleLoading } = useViewerIsStaff();
   const { fees, isLoading } = useClassFees(vault.classCode);
+  const feesKey = vault.classCode ?? "none";
+  // The board from the last visit to this class, shown while a fresh one is on
+  // its way.
+  const keptFees = lastFeeBoards.get(feesKey);
+  useEffect(() => {
+    if (!isLoading) lastFeeBoards.set(feesKey, fees);
+  }, [fees, isLoading, feesKey]);
+  const board = isLoading && keptFees !== undefined ? keptFees : fees;
   const setFee = useMutation(api.fees.setFee);
   const [year, setYear] = useState(() => new Date().getFullYear());
   const [saving, setSaving] = useState<string | null>(null);
@@ -71,7 +89,7 @@ export function FeesPanel({
   );
   // Every tick on the board, so a row reads its own cells without scanning.
   const paidCells = new Set(
-    fees.filter((fee) => fee.paid).map((fee) => cellKey(fee.studentName, fee.month)),
+    board.filter((fee) => fee.paid).map((fee) => cellKey(fee.studentName, fee.month)),
   );
   const roster = useMemo(
     () =>
@@ -91,7 +109,13 @@ export function FeesPanel({
   const myMonthsPaid = columns.filter((month) =>
     paidCells.has(cellKey(myRow, month)),
   ).length;
-  const settled = ready && !roleLoading && !isLoading;
+  // Show the table as soon as there is a roster or a board to show: a fresh
+  // answer arriving late must not be able to empty a list that was just on
+  // screen.
+  const settled =
+    (ready || roster.length > 0) &&
+    !roleLoading &&
+    (!isLoading || keptFees !== undefined);
 
   const toggle = async (name: string, month: string, paid: boolean) => {
     if (!vault.classCode) {

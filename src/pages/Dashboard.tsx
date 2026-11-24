@@ -34,8 +34,20 @@ import {
   Video,
 } from "lucide-react";
 import { useQuery } from "convex/react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
+
+/**
+ * The last roster this tab saw, per class.
+ *
+ * The roster is this page's list of accounts: the fees rows, the attendance
+ * tally and the practice names all read it. Its queries start over on every
+ * visit, so `sheetReady` is false for a moment on the way back and the list
+ * used to empty out — and when one of those queries came back quiet it stayed
+ * empty. Keeping the last answer makes the list stay put; a fresh answer always
+ * replaces it.
+ */
+let lastRosterSeen: { key: string; names: string[] } | null = null;
 
 export default function Dashboard() {
   const { user } = useAuth();
@@ -104,7 +116,7 @@ export default function Dashboard() {
   const sheetReady =
     vault.classCode === null ||
     (!sheet.isLoading && !marksLoading && !roleLoading);
-  const rosterNames = useMemo(
+  const liveRoster = useMemo(
     () =>
       sheetReady
         ? attendanceSheetNames(vault, {
@@ -114,7 +126,7 @@ export default function Dashboard() {
             added: sheet.added,
             teachers: sheet.teachers,
           }).names
-        : [],
+        : null,
     [
       vault,
       authorKey,
@@ -125,6 +137,19 @@ export default function Dashboard() {
       sheetReady,
     ],
   );
+  const rosterKey = vault.classCode ?? "none";
+  useEffect(() => {
+    if (liveRoster !== null && liveRoster.length > 0) {
+      lastRosterSeen = { key: rosterKey, names: liveRoster };
+    }
+  }, [liveRoster, rosterKey]);
+  // The answer on its way, or the last one for this same class.
+  const rememberedRoster = lastRosterSeen;
+  const rosterNames =
+    liveRoster ??
+    (rememberedRoster !== null && rememberedRoster.key === rosterKey
+      ? rememberedRoster.names
+      : []);
   const presentToday = rosterNames.filter(
     (name) => attendanceFor(marks, todayIso, name)?.status === "present",
   ).length;
