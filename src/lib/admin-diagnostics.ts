@@ -218,9 +218,19 @@ function clock(at: number): string {
  */
 export function formatDiagnoses(): string {
   const earlier = entries.filter((entry) => entry.at < SESSION_START).length;
+  // Which published build this tab is running. A page left open, an installed
+  // app, or a browser that held on to an older bundle answers a question about
+  // the code differently from the build that is live now, and that is worth
+  // being able to see rather than guess at.
+  const build =
+    typeof document === "undefined"
+      ? "?"
+      : (document.querySelector('script[type="module"]')?.getAttribute("src") ??
+        "?");
   const header = [
     "NatyaVault admin diagnostics",
     `time: ${new Date().toISOString()}`,
+    `build: ${build}`,
     `page: ${typeof location === "undefined" ? "?" : location.href}`,
     `agent: ${typeof navigator === "undefined" ? "?" : navigator.userAgent}`,
     `this page load: ${new Date(SESSION_START).toISOString()}`,
