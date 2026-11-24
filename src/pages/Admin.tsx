@@ -589,9 +589,8 @@ export default function Admin() {
           </CardTitle>
           <CardDescription>
             Every sign-in account in the studio you are viewing, teachers
-            included, plus any account that has not joined a studio yet. Filter
-            to the teacher accounts, then reset any password to set a new value
-            — current passwords are never shown.
+            included. Filter to the teacher accounts, then reset any password
+            to set a new value — current passwords are never shown.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
@@ -680,17 +679,6 @@ export default function Admin() {
                       ? "Teacher"
                       : "Student"}
                 </Badge>
-                {/* Listed here because it belongs to no studio, so no studio
-                    view would otherwise show it. */}
-                {account.inStudio === false && (
-                  <Badge
-                    variant="outline"
-                    className="gap-1 text-muted-foreground"
-                    title="This account has not joined a studio yet, so it is not in any studio's list"
-                  >
-                    No studio
-                  </Badge>
-                )}
                 <Badge
                   variant="outline"
                   className="gap-1 text-muted-foreground"

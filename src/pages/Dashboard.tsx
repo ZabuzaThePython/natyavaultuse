@@ -10,7 +10,7 @@ import {
   useViewerIsStaff,
 } from "@/lib/classes";
 import { useClassPractice } from "@/lib/practice";
-import { useActiveStudio, useStudioName } from "@/lib/studios";
+import { useStudioName } from "@/lib/studios";
 import { getAdminCreds } from "@/lib/admin";
 import {
   attendanceFor,
@@ -57,16 +57,15 @@ export default function Dashboard() {
   // Admin area manages. Leaving the Admin page used to leave no accounts list
   // anywhere they looked (the URL goes back to /dashboard), so it lives here
   // too; resetting and deleting stay in the Admin area, one click away.
-  const { studioId: activeStudioId } = useActiveStudio();
+  //
+  // Deliberately deployment-wide, with no studio filter: this is the operator's
+  // view of every account. Scoped to the studio picked in the shell, the list
+  // changed — and looked empty — whenever that picker moved.
   const adminCreds = getAdminCreds() ?? { username: "", password: "" };
   const accounts = useQuery(
     api.admin.listAccounts,
     isPlatformAdmin
-      ? {
-          adminUsername: adminCreds.username,
-          adminPassword: adminCreds.password,
-          ...(activeStudioId ? { studioId: activeStudioId } : {}),
-        }
+      ? { adminUsername: adminCreds.username, adminPassword: adminCreds.password }
       : "skip",
   );
 
@@ -321,7 +320,7 @@ export default function Dashboard() {
                 Accounts
               </h2>
               <p className="text-xs text-muted-foreground">
-                Everyone who can sign in to the studio you are viewing.
+                Everyone who can sign in to NatyaVault, in every studio.
               </p>
             </div>
             <Button type="button" variant="outline" size="sm" asChild>
@@ -365,14 +364,6 @@ export default function Dashboard() {
                           ? "Teacher"
                           : "Student"}
                     </span>
-                    {account.inStudio === false && (
-                      <span
-                        className="rounded-full border border-dashed px-2 py-0.5 text-[11px] text-muted-foreground"
-                        title="This account has not joined a studio"
-                      >
-                        No studio
-                      </span>
-                    )}
                   </div>
                 ))
               )}

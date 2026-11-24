@@ -16,7 +16,7 @@ import {
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
-import { studioLessUserIds, studioMemberIds } from "./studios";
+import { studioMemberIds } from "./studios";
 
 // Admin gate credentials for the NatyaVault Admin area.
 // Kept server-side so they are never shipped in the browser bundle.
@@ -439,20 +439,11 @@ export const listAccounts = query({
     // students who joined its classes. Another studio's accounts stay out.
     const allowed =
       studioId === undefined ? null : await studioMemberIds(ctx, studioId);
-    // Accounts that belong to no studio are in no studio's list, so this list
-    // has to carry them: without that they were dropped as soon as the shell
-    // picked a studio (five accounts became four), and no view could manage
-    // them. Another studio's people stay out.
-    const studioLess =
-      studioId === undefined ? null : await studioLessUserIds(ctx);
     const allUsers = await ctx.db.query("users").collect();
     const users =
       allowed === null
         ? allUsers
-        : allUsers.filter(
-            (user) =>
-              allowed.has(user._id) || studioLess?.has(user._id) === true,
-          );
+        : allUsers.filter((user) => allowed.has(user._id));
 
     // One pass over the class tables instead of two reads per account, so the
     // list can show who is a teacher and which class each account belongs to.
@@ -505,9 +496,6 @@ export const listAccounts = query({
           passwordSet: passwordAccount?.secret !== undefined,
           isAdmin,
           isTeacher,
-          // False for an account this studio does not contain: it is listed
-          // because it has joined no studio at all.
-          inStudio: allowed === null || allowed.has(user._id),
           classRole: user.classRole ?? null,
           classes: [...owned, ...(joined ? [joined] : [])],
         };
