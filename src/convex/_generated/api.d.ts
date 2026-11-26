@@ -16,6 +16,7 @@ import type * as auth_password from "../auth/password.js";
 import type * as callState from "../callState.js";
 import type * as calls from "../calls.js";
 import type * as chats from "../chats.js";
+import type * as classContent from "../classContent.js";
 import type * as classes from "../classes.js";
 import type * as codes from "../codes.js";
 import type * as crons from "../crons.js";
@@ -50,6 +51,7 @@ declare const fullApi: ApiFromModules<{
   callState: typeof callState;
   calls: typeof calls;
   chats: typeof chats;
+  classContent: typeof classContent;
   classes: typeof classes;
   codes: typeof codes;
   crons: typeof crons;

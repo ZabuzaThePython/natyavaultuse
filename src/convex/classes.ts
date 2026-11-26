@@ -9,6 +9,7 @@ import {
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
+import { deleteClassContent } from "./classContent";
 import { findClass, generateCode } from "./codes";
 import {
   addStudioMember,
@@ -490,64 +491,10 @@ export const deleteClass = mutation({
       };
     }
 
-    // The class's room goes with it: its messages (and any files on them),
-    // seats, read markers, and call rows.
-    const rooms = await ctx.db
-      .query("chats")
-      .withIndex("by_class", (q) => q.eq("classCode", row.code))
-      .collect();
-    for (const room of rooms) {
-      const messages = await ctx.db
-        .query("chatMessages")
-        .withIndex("by_chat_time", (q) => q.eq("chatId", room._id))
-        .collect();
-      for (const message of messages) {
-        if (message.attachment) {
-          await ctx.storage.delete(message.attachment.storageId);
-        }
-        await ctx.db.delete(message._id);
-      }
-
-      const seats = await ctx.db
-        .query("chatMembers")
-        .withIndex("by_chat", (q) => q.eq("chatId", room._id))
-        .collect();
-      for (const seat of seats) await ctx.db.delete(seat._id);
-
-      const reads = await ctx.db
-        .query("chatReads")
-        .withIndex("by_chat_user", (q) => q.eq("chatId", room._id))
-        .collect();
-      for (const read of reads) await ctx.db.delete(read._id);
-
-      const calls = await ctx.db
-        .query("calls")
-        .withIndex("by_chat_started", (q) => q.eq("chatId", room._id))
-        .collect();
-      for (const call of calls) await ctx.db.delete(call._id);
-
-      await ctx.db.delete(room._id);
-    }
-
-    const members = await ctx.db
-      .query("classMembers")
-      .withIndex("by_code", (q) => q.eq("code", row.code))
-      .collect();
-    for (const member of members) await ctx.db.delete(member._id);
-
-    const added = await ctx.db
-      .query("classStudents")
-      .withIndex("by_code", (q) => q.eq("code", row.code))
-      .collect();
-    for (const student of added) await ctx.db.delete(student._id);
-
-    const marks = await ctx.db
-      .query("attendanceMarks")
-      .withIndex("by_code", (q) => q.eq("code", row.code))
-      .collect();
-    for (const mark of marks) await ctx.db.delete(mark._id);
-
-    await ctx.db.delete(row._id);
+    // Its room, its people, its sheet, its marks, its practice log, its fees
+    // and its media all go with it — the one cascade in classContent.ts, which
+    // the operator's studio delete uses too.
+    await deleteClassContent(ctx, row);
     return { ok: true, error: null, name: row.name };
   },
 });
