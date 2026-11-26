@@ -1,3 +1,14 @@
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -38,12 +49,15 @@ import { toast } from "sonner";
  *
  * The platform admin gets one extra card at the bottom: every studio, with the
  * switch that suspends one. Suspending freezes a studio without deleting
- * anything (see convex/studios.ts → setStudioSuspended).
+ * anything (see convex/studios.ts → setStudioSuspended); Delete removes it and
+ * everything in it (see convex/studios.ts → deleteStudio).
  */
 function OperatorStudios({
   studios,
   busy,
+  deleting,
   onToggle,
+  onDelete,
 }: {
   studios: {
     id: Id<"studios">;
@@ -54,7 +68,9 @@ function OperatorStudios({
     suspended: boolean;
   }[];
   busy: string | null;
+  deleting: string | null;
   onToggle: (id: Id<"studios">, suspended: boolean) => void;
+  onDelete: (id: Id<"studios">, name: string) => void;
 }) {
   return (
     <Card>
@@ -64,7 +80,8 @@ function OperatorStudios({
           All studios
         </CardTitle>
         <CardDescription>
-          Suspending freezes a studio's classes without deleting anything.
+          Suspending freezes a studio without deleting anything. Deleting
+          removes the studio and everything in it; the accounts stay.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-2">
@@ -91,22 +108,69 @@ function OperatorStudios({
                 {row.members === 1 ? "person" : "people"}
               </p>
             </div>
-            <Button
-              type="button"
-              size="sm"
-              variant={row.suspended ? "default" : "outline"}
-              className="cursor-pointer"
-              disabled={busy === row.id}
-              onClick={() => onToggle(row.id, row.suspended)}
-            >
-              {busy === row.id ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : row.suspended ? (
-                "Resume"
-              ) : (
-                "Suspend"
-              )}
-            </Button>
+            <div className="flex shrink-0 items-center gap-1.5">
+              <Button
+                type="button"
+                size="sm"
+                variant={row.suspended ? "default" : "outline"}
+                className="cursor-pointer"
+                disabled={busy === row.id || deleting === row.id}
+                onClick={() => onToggle(row.id, row.suspended)}
+              >
+                {busy === row.id ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : row.suspended ? (
+                  "Resume"
+                ) : (
+                  "Suspend"
+                )}
+              </Button>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="cursor-pointer text-muted-foreground hover:text-destructive"
+                    aria-label={`Delete ${row.name}`}
+                    title="Delete this studio and everything in it"
+                    disabled={busy === row.id || deleting === row.id}
+                  >
+                    {deleting === row.id ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="h-4 w-4" />
+                    )}
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>
+                      Delete {row.name}?
+                    </AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This removes the studio and its {row.classes}{" "}
+                      {row.classes === 1 ? "class" : "classes"} for good:
+                      everyone's membership, attendance, practice log, fee
+                      marks, media and each class's chat go with it. The
+                      accounts themselves are kept, but they will no longer be
+                      in a studio. This cannot be undone.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel className="cursor-pointer">
+                      Cancel
+                    </AlertDialogCancel>
+                    <AlertDialogAction
+                      className="cursor-pointer bg-destructive text-white hover:bg-destructive/90"
+                      onClick={() => onDelete(row.id, row.name)}
+                    >
+                      Delete studio
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </div>
           </div>
         ))}
       </CardContent>
@@ -115,7 +179,7 @@ function OperatorStudios({
 }
 
 export default function Studio() {
-  const { studioId: activeStudioId } = useActiveStudio();
+  const { studioId: activeStudioId, setStudioId } = useActiveStudio();
   // From the shell's remembered role rather than a live query, so a gap in that
   // one answer cannot hide the operator's own controls until a sign-in.
   const { isPlatformAdmin } = useViewerIsStaff();
@@ -128,6 +192,7 @@ export default function Studio() {
   const removeTeacher = useMutation(api.studios.removeTeacher);
   const setJoinOpen = useMutation(api.studios.setJoinOpen);
   const setSuspend = useMutation(api.studios.setStudioSuspended);
+  const deleteStudio = useMutation(api.studios.deleteStudio);
 
   const [nameDraft, setNameDraft] = useState<string | null>(null);
   const [savingName, setSavingName] = useState(false);
@@ -135,6 +200,7 @@ export default function Studio() {
   const [adding, setAdding] = useState(false);
   const [removing, setRemoving] = useState<string | null>(null);
   const [busyStudio, setBusyStudio] = useState<string | null>(null);
+  const [deletingStudio, setDeletingStudio] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
   const toggleStudio = async (id: Id<"studios">, suspended: boolean) => {
@@ -151,6 +217,26 @@ export default function Studio() {
       toast.error("Could not change that studio.");
     } finally {
       setBusyStudio(null);
+    }
+  };
+
+  const dropStudio = async (id: Id<"studios">, name: string) => {
+    setDeletingStudio(id);
+    try {
+      const result = await deleteStudio({ studioId: id });
+      if (!result.ok) {
+        toast.error(result.error ?? "Could not delete that studio.");
+        return;
+      }
+      // The studio on screen is gone: drop the remembered choice so the shell
+      // falls back to another one instead of asking about a missing studio.
+      if (activeStudioId === id) setStudioId(null);
+      toast.success(`Deleted \u201c${name}\u201d.`);
+    } catch (error) {
+      console.error("Deleting a studio failed:", error);
+      toast.error("Could not delete that studio.");
+    } finally {
+      setDeletingStudio(null);
     }
   };
 
@@ -178,7 +264,9 @@ export default function Studio() {
           <OperatorStudios
             studios={studios}
             busy={busyStudio}
+            deleting={deletingStudio}
             onToggle={toggleStudio}
+            onDelete={dropStudio}
           />
         ) : null}
       </div>
@@ -497,7 +585,9 @@ export default function Studio() {
         <OperatorStudios
           studios={studios}
           busy={busyStudio}
+          deleting={deletingStudio}
           onToggle={toggleStudio}
+          onDelete={dropStudio}
         />
       ) : null}
     </div>

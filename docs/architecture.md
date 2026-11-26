@@ -99,8 +99,8 @@ Every function the deployment exposes, and every HTTP route, read out of
 `src/convex/`.
 
 <!-- BEGIN GENERATED BACKEND -->
-**96 public functions**, 38
-internal helpers — 33 queries, 46 mutations and
+**97 public functions**, 38
+internal helpers — 33 queries, 47 mutations and
 17 actions across 20 modules in `src/convex/`.
 
 | module | queries | mutations | actions | internal |
@@ -120,7 +120,7 @@ internal helpers — 33 queries, 46 mutations and
 | `practice.ts` | `classPractice` | `addEntry`, `removeEntry`, `importLocal` | — | — |
 | `push.ts` | `publicKey`, `devices` | `subscribe`, `unsubscribe` | — | `recipients`, `subscriptionsFor`, `removeDead` |
 | `pushSend.ts` | — | — | — | `send`, `sendToUsers` |
-| `studios.ts` | `myStudio`, `listStudios`, `validateCode`, `studioOverview` | `createStudio`, `joinStudio`, `renameStudio`, `addTeacher`, `removeTeacher`, `setStudioSuspended`, `setJoinOpen` | — | `studioOnSignUp`, `folderForClass`, `setFolderId` |
+| `studios.ts` | `myStudio`, `listStudios`, `validateCode`, `studioOverview` | `createStudio`, `joinStudio`, `renameStudio`, `addTeacher`, `removeTeacher`, `setStudioSuspended`, `deleteStudio`, `setJoinOpen` | — | `studioOnSignUp`, `folderForClass`, `setFolderId` |
 | `tour.ts` | `pending` | `finish` | — | — |
 | `usernames.ts` | `isTaken`, `resolve` | — | — | — |
 | `users.ts` | `currentUser` | — | — | — |
